@@ -11,5 +11,6 @@ export type AuthenticatedPrincipal = {
 export type AuthenticationRequest = {
   headers: Record<string, string | string[] | undefined>
   query?: unknown
+  body?: unknown
   authenticatedPrincipal?: AuthenticatedPrincipal
 }

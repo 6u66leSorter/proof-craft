@@ -1,11 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
+import { sqliteTimestamp } from '../common/sqlite-timestamp.js'
 import { NotificationsRepository } from './notifications.repository.js'
 
 const PRUNE_INTERVAL_MS = 60 * 60 * 1000
 const DEFAULT_RETENTION_DAYS = 90
-
-const sqliteTimestamp = (timestamp: number): string =>
-  new Date(timestamp).toISOString().slice(0, 19).replace('T', ' ')
 
 const retentionDays = (): number => {
   const configured = Number(process.env.APP_NOTIFICATIONS_RETENTION_DAYS || DEFAULT_RETENTION_DAYS)

@@ -15,4 +15,6 @@ export type NotificationSnapshot = {
 export abstract class NotificationsRepository {
   abstract findForUser(userId: number, limit: number): Promise<NotificationSnapshot>
   abstract deleteCreatedBefore(cutoff: string): Promise<number>
+  abstract markOneRead(userId: number, notificationId: number, readAt: string): Promise<number>
+  abstract markAllRead(userId: number, readAt: string): Promise<number>
 }

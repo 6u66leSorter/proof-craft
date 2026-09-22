@@ -124,7 +124,7 @@ const seedLegacyDatabase = (databasePath) => {
   `)
   insertReview.run(approvedHomeworkId, teacherId, 4)
   insertReview.run(approvedHomeworkId, teacherId, 5)
-  db.prepare(`
+  const unreadNotificationId = Number(db.prepare(`
     INSERT INTO app_notifications (user_id, kind, body, payload, read_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(
@@ -134,7 +134,7 @@ const seedLegacyDatabase = (databasePath) => {
     JSON.stringify({ homework_id: approvedHomeworkId, student_id: studentOneId }),
     null,
     '2026-09-22 12:00:00',
-  )
+  ).lastInsertRowid)
   db.prepare(`
     INSERT INTO app_notifications (user_id, kind, body, payload, read_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -150,10 +150,10 @@ const seedLegacyDatabase = (databasePath) => {
     INSERT INTO app_notifications (user_id, kind, body, payload, read_at, created_at)
     VALUES (?, 'contract_invalid', 'Невалидный payload', '{broken', '2026-09-20 13:00:00', '2026-09-20 12:00:00')
   `).run(studentOneUserId)
-  db.prepare(`
+  const otherUserNotificationId = Number(db.prepare(`
     INSERT INTO app_notifications (user_id, kind, body, created_at)
     VALUES (?, 'other_user', 'Чужое уведомление', '2026-09-23 12:00:00')
-  `).run(studentTwoUserId)
+  `).run(studentTwoUserId).lastInsertRowid)
   db.prepare(`
     INSERT INTO app_notifications (user_id, kind, body, read_at, created_at)
     VALUES (?, 'expired', 'Устаревшее', '2020-01-01 13:00:00', '2020-01-01 12:00:00')
@@ -174,6 +174,8 @@ const seedLegacyDatabase = (databasePath) => {
     secondStudentHomeworkId,
     studentOneId,
     studentTwoId,
+    unreadNotificationId,
+    otherUserNotificationId,
   }
 }
 
@@ -217,6 +219,19 @@ const getJson = async (path, telegramUserId = null) => {
   const response = await getResponse(path, telegramUserId)
   const body = await response.json()
   return { response, body }
+}
+
+const postJson = async (path, body, telegramUserId = null) => {
+  const headers = { 'Content-Type': 'application/json' }
+  if (telegramUserId != null) {
+    headers['X-Telegram-Init-Data'] = buildTelegramInitData(telegramUserId)
+  }
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  return { response, body: await response.json() }
 }
 
 let fixtureIds
@@ -432,6 +447,88 @@ test('notifications сохраняет auth, query и unknown-user ошибки'
       '/api/notifications?telegram_id=9999',
       9999,
     )
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Пользователь не найден.' })
+  })
+})
+
+test('POST /api/notifications/read изменяет только свои уведомления', async () => {
+  const foreign = await postJson('/api/notifications/read', {
+    telegram_id: 3001,
+    notification_id: fixtureIds.otherUserNotificationId,
+  }, 3001)
+  assert.equal(foreign.response.status, 200)
+  assert.deepEqual(foreign.body, { ok: true })
+
+  const bobBefore = await getJson('/api/notifications?telegram_id=3002', 3002)
+  assert.equal(bobBefore.body.data.unread_count, 1)
+
+  const own = await postJson('/api/notifications/read', {
+    telegram_id: 3001,
+    notification_id: fixtureIds.unreadNotificationId,
+  }, 3001)
+  assert.equal(own.response.status, 200)
+  assert.deepEqual(own.body, { ok: true })
+
+  const aliceAfter = await getJson('/api/notifications?telegram_id=3001', 3001)
+  assert.equal(aliceAfter.body.data.unread_count, 0)
+  assert.equal(
+    typeof aliceAfter.body.data.notifications.find(
+      (notification) => notification.id === fixtureIds.unreadNotificationId,
+    )?.read_at,
+    'string',
+  )
+
+  const all = await postJson('/api/notifications/read', {
+    telegram_id: 3002,
+    read_all: true,
+  }, 3002)
+  assert.equal(all.response.status, 200)
+  assert.deepEqual(all.body, { ok: true })
+  const bobAfter = await getJson('/api/notifications?telegram_id=3002', 3002)
+  assert.equal(bobAfter.body.data.unread_count, 0)
+})
+
+test('POST /api/notifications/read сохраняет validation, auth и unknown-user ошибки', async (context) => {
+  await context.test('нет цели изменения', async () => {
+    const { response, body } = await postJson('/api/notifications/read', {
+      telegram_id: 3001,
+      read_all: false,
+    }, 3001)
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Передайте notification_id или read_all: true.' })
+  })
+
+  await context.test('некорректный notification_id', async () => {
+    const { response, body } = await postJson('/api/notifications/read', {
+      telegram_id: 3001,
+      notification_id: 0,
+    }, 3001)
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await postJson('/api/notifications/read', {
+      telegram_id: 3001,
+      read_all: true,
+    })
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await postJson('/api/notifications/read', {
+      telegram_id: 3001,
+      read_all: true,
+    }, 3002)
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('подписанный неизвестный пользователь', async () => {
+    const { response, body } = await postJson('/api/notifications/read', {
+      telegram_id: 9999,
+      read_all: true,
+    }, 9999)
     assert.equal(response.status, 404)
     assert.deepEqual(body, { ok: false, error: 'Пользователь не найден.' })
   })

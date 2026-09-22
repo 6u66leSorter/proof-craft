@@ -40,7 +40,7 @@
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/notifications` | Telegram, VK или web-session с существующим user | Список, JSON payload, общее число непрочитанных и retention | medium | nest-ready |
-| POST | `/api/notifications/read` | пользователь | Прочитать одно или все уведомления | medium | legacy |
+| POST | `/api/notifications/read` | Telegram, VK или web-session с существующим user | Идемпотентно отметить одно своё или все свои уведомления прочитанными | medium | nest-ready |
 
 ## Чаты
 

@@ -15,7 +15,12 @@ const studentTelegramId = 7101
 let temporaryRoot: string
 let databasePath: string
 let app: NestFastifyApplication
-let fixtureIds: { homework: number; student: number }
+let fixtureIds: {
+  homework: number
+  student: number
+  aliceUnread: number
+  bobUnread: number
+}
 
 const seedNotifications = (path: string): typeof fixtureIds => {
   const db = new Database(path)
@@ -45,14 +50,14 @@ const seedNotifications = (path: string): typeof fixtureIds => {
     INSERT INTO app_notifications (user_id, kind, body, payload, read_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `)
-  insertNotification.run(
+  const aliceUnread = Number(insertNotification.run(
     aliceUserId,
     'homework_update',
     'Работа обновлена',
     JSON.stringify({ homework_id: homeworkId, student_id: studentId }),
     null,
     '2026-09-22 12:00:00',
-  )
+  ).lastInsertRowid)
   insertNotification.run(
     aliceUserId,
     'read_notice',
@@ -77,14 +82,14 @@ const seedNotifications = (path: string): typeof fixtureIds => {
     '2020-01-01 13:00:00',
     '2020-01-01 12:00:00',
   )
-  insertNotification.run(
+  const bobUnread = Number(insertNotification.run(
     bobUserId,
     'other_user',
     'Чужое',
     null,
     null,
     '2026-09-23 12:00:00',
-  )
+  ).lastInsertRowid)
 
   const tokenHash = crypto.createHash('sha256').update(webSessionToken).digest('hex')
   db.prepare(`
@@ -92,7 +97,7 @@ const seedNotifications = (path: string): typeof fixtureIds => {
     VALUES (?, ?, datetime('now', '+1 day'))
   `).run(aliceUserId, tokenHash)
   db.close()
-  return { homework: homeworkId, student: studentId }
+  return { homework: homeworkId, student: studentId, aliceUnread, bobUnread }
 }
 
 const buildTelegramInitData = (telegramUserId: number): string => {
@@ -249,6 +254,131 @@ test('notifications сохраняет auth, query и unknown-user ошибки'
       method: 'GET',
       url: `/api/notifications?telegram_id=${unknownTelegramId}`,
       headers: authHeaders(unknownTelegramId),
+    })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Пользователь не найден.',
+    })
+  })
+})
+
+test('POST /api/notifications/read изменяет только свои уведомления', async () => {
+  const foreign = await app.inject({
+    method: 'POST',
+    url: '/api/notifications/read',
+    headers: authHeaders(),
+    payload: {
+      telegram_id: studentTelegramId,
+      notification_id: fixtureIds.bobUnread,
+    },
+  })
+  assert.equal(foreign.statusCode, 200)
+  assert.deepEqual(foreign.json(), { ok: true })
+
+  const bobBefore = await app.inject({
+    method: 'GET',
+    url: '/api/notifications?telegram_id=7102',
+    headers: authHeaders(7102),
+  })
+  assert.equal(bobBefore.json().data.unread_count, 1)
+
+  const own = await app.inject({
+    method: 'POST',
+    url: '/notifications/read',
+    headers: authHeaders(),
+    payload: {
+      telegram_id: studentTelegramId,
+      notification_id: fixtureIds.aliceUnread,
+    },
+  })
+  assert.equal(own.statusCode, 200)
+  assert.deepEqual(own.json(), { ok: true })
+
+  const aliceAfter = await app.inject({
+    method: 'GET',
+    url: `/api/notifications?telegram_id=${studentTelegramId}`,
+    headers: authHeaders(),
+  })
+  assert.equal(aliceAfter.json().data.unread_count, 0)
+  assert.equal(
+    typeof aliceAfter.json().data.notifications.find(
+      (notification: { id: number }) => notification.id === fixtureIds.aliceUnread,
+    )?.read_at,
+    'string',
+  )
+
+  const all = await app.inject({
+    method: 'POST',
+    url: '/api/notifications/read',
+    headers: authHeaders(7102),
+    payload: { telegram_id: 7102, read_all: true },
+  })
+  assert.equal(all.statusCode, 200)
+  assert.deepEqual(all.json(), { ok: true })
+  const bobAfter = await app.inject({
+    method: 'GET',
+    url: '/api/notifications?telegram_id=7102',
+    headers: authHeaders(7102),
+  })
+  assert.equal(bobAfter.json().data.unread_count, 0)
+})
+
+test('POST /api/notifications/read сохраняет validation, auth и unknown-user ошибки', async (context) => {
+  await context.test('нет цели изменения', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read',
+      headers: authHeaders(),
+      payload: { telegram_id: studentTelegramId, read_all: false },
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Передайте notification_id или read_all: true.',
+    })
+  })
+
+  await context.test('некорректный notification_id', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read',
+      headers: authHeaders(),
+      payload: { telegram_id: studentTelegramId, notification_id: 0 },
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Некорректные параметры запроса.',
+    })
+  })
+
+  await context.test('нет credential', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read',
+      payload: { telegram_id: studentTelegramId, read_all: true },
+    })
+    assert.equal(response.statusCode, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read',
+      headers: authHeaders(7102),
+      payload: { telegram_id: studentTelegramId, read_all: true },
+    })
+    assert.equal(response.statusCode, 403)
+  })
+
+  await context.test('подписанный неизвестный пользователь', async () => {
+    const unknownTelegramId = 7999
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read',
+      headers: authHeaders(unknownTelegramId),
+      payload: { telegram_id: unknownTelegramId, read_all: true },
     })
     assert.equal(response.statusCode, 404)
     assert.deepEqual(response.json(), {

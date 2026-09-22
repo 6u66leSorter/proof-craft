@@ -48,4 +48,20 @@ export class PrismaNotificationsRepository implements NotificationsRepository {
     })
     return result.count
   }
+
+  async markOneRead(userId: number, notificationId: number, readAt: string): Promise<number> {
+    const result = await this.prisma.app_notifications.updateMany({
+      where: { id: notificationId, user_id: userId, read_at: null },
+      data: { read_at: readAt },
+    })
+    return result.count
+  }
+
+  async markAllRead(userId: number, readAt: string): Promise<number> {
+    const result = await this.prisma.app_notifications.updateMany({
+      where: { user_id: userId, read_at: null },
+      data: { read_at: readAt },
+    })
+    return result.count
+  }
 }
