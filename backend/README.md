@@ -1,6 +1,6 @@
 # Proof Craft backend
 
-Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичный список, профиль, аватар и файлы работ; production routing пока остаётся на legacy.
+Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио и авторизованная showcase-витрина; production routing пока остаётся на legacy.
 
 ## Команды
 
@@ -41,6 +41,8 @@ DATABASE_URL=file:/absolute/path/to/barber.db npm run backend:start
 Публичный аватар отдаётся только для профиля `studying`. Файловый adapter разрешает реальный путь и отклоняет файлы вне каталога `uploads`, после чего controller потоково возвращает JPEG с публичным кэшированием на час.
 
 Публичные `GET /api/guest/homeworks/:id/file` и `GET /api/guest/homeworks/:homeworkId/attachments/:attachmentId/file` отдают только `approved`-работы учеников `studying`. Вложение обязано принадлежать работе из URL. Storage adapter потоково отдаёт локальный или Telegram-файл и поддерживает JPEG-preview для локальных фото.
+
+`GET /api/showcase/homeworks` и его файловый маршрут требуют Telegram/VK/web-session credential. Список содержит только `approved` фото/видео с доступным файлом, убирает повторы и сохраняет legacy-поведение `limit`, `exclude_ids` и `cycled`.
 
 Безопасные команды:
 

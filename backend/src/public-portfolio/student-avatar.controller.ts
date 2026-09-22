@@ -1,7 +1,7 @@
 import { Controller, Get, Inject, Param, Res, StreamableFile } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
+import { parsePositiveId } from '../common/parse-positive-id.js'
 import { GetStudentAvatarUseCase } from './get-student-avatar.use-case.js'
-import { parsePositiveId } from './parse-positive-id.js'
 
 @Controller(['api/guest/students', 'guest/students'])
 export class StudentAvatarController {

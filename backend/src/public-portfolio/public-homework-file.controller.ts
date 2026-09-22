@@ -10,11 +10,11 @@ import {
   StreamableFile,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
+import { parsePositiveId } from '../common/parse-positive-id.js'
 import {
   GetPublicHomeworkFileUseCase,
   type PublicFileResponse,
 } from './get-public-homework-file.use-case.js'
-import { parsePositiveId } from './parse-positive-id.js'
 
 const parsePreview = (value: string | undefined): boolean => {
   if (value == null) return false

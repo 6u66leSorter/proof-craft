@@ -1,18 +1,12 @@
 import type { Readable } from 'node:stream'
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common'
+import { contentTypeToMime } from '../storage/content-type-to-mime.js'
 import { FileReferenceService } from '../storage/file-reference.service.js'
 import { PublicHomeworkFileRepository } from './public-homework-file.repository.js'
 
 export type PublicFileResponse = {
   stream: Readable
   contentType: string
-}
-
-const contentTypeToMime = (contentType: string): string => {
-  if (contentType === 'photo') return 'image/jpeg'
-  if (contentType === 'video') return 'video/mp4'
-  if (contentType === 'document') return 'application/octet-stream'
-  return 'text/plain; charset=utf-8'
 }
 
 @Injectable()

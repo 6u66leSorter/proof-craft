@@ -96,17 +96,20 @@ const seedLegacyDatabase = (databasePath) => {
   const insertHomework = db.prepare(`
     INSERT INTO homeworks
       (student_id, lesson_number, is_bonus, content_type, file_id, text_content, status, haircut_name)
-    VALUES (?, ?, 0, 'text', ?, ?, ?, ?)
+    VALUES (?, ?, 0, ?, ?, ?, ?, ?)
   `)
   const approvedHomeworkId = Number(
-    insertHomework.run(studentOneId, 1, approvedFilePath, 'Одобренная работа', 'approved', 'Фейд').lastInsertRowid,
+    insertHomework.run(studentOneId, 1, 'photo', approvedFilePath, 'Одобренная работа', 'approved', 'Фейд').lastInsertRowid,
   )
   const pendingHomeworkId = Number(
-    insertHomework.run(studentOneId, 2, pendingFilePath, 'Работа на проверке', 'pending', 'Кроп').lastInsertRowid,
+    insertHomework.run(studentOneId, 2, 'photo', pendingFilePath, 'Работа на проверке', 'pending', 'Кроп').lastInsertRowid,
   )
-  insertHomework.run(studentOneId, 3, null, 'Работа на доработке', 'revision', 'Классика')
+  insertHomework.run(studentOneId, 3, 'text', null, 'Работа на доработке', 'revision', 'Классика')
   const secondStudentHomeworkId = Number(
-    insertHomework.run(studentTwoId, 1, secondStudentFilePath, 'Работа второго ученика', 'approved', 'Бокс').lastInsertRowid,
+    insertHomework.run(studentTwoId, 1, 'video', secondStudentFilePath, 'Работа второго ученика', 'approved', 'Бокс').lastInsertRowid,
+  )
+  const approvedDocumentHomeworkId = Number(
+    insertHomework.run(studentOneId, 4, 'document', approvedFilePath, 'Документ', 'approved', 'Схема').lastInsertRowid,
   )
 
   db.prepare(`
@@ -136,6 +139,7 @@ const seedLegacyDatabase = (databasePath) => {
   db.close()
   return {
     approvedHomeworkId,
+    approvedDocumentHomeworkId,
     pendingHomeworkId,
     secondStudentHomeworkId,
     studentOneId,
@@ -316,6 +320,87 @@ test('strict Telegram auth отклоняет несовпадающий telegra
   assert.equal(body.ok, false)
 })
 
+test('GET /api/showcase/homeworks возвращает только approved фото и видео', async () => {
+  const { response, body } = await getJson(
+    '/api/showcase/homeworks?telegram_id=3001&limit=2',
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.data.cycled, false)
+  assert.equal(body.data.homeworks.length, 2)
+
+  const normalized = body.data.homeworks
+    .map(({ created_at, ...homework }) => {
+      assert.equal(typeof created_at, 'string')
+      return homework
+    })
+    .sort((left, right) => left.id - right.id)
+  assert.deepEqual(normalized, [
+    {
+      id: fixtureIds.approvedHomeworkId,
+      student_name: 'Анна Ученица',
+      haircut_name: 'Фейд',
+      content_type: 'photo',
+    },
+    {
+      id: fixtureIds.secondStudentHomeworkId,
+      student_name: 'Мария Ученица',
+      haircut_name: 'Бокс',
+      content_type: 'video',
+    },
+  ])
+})
+
+test('showcase циклически дополняет выборку после exclude_ids', async () => {
+  const { response, body } = await getJson(
+    `/api/showcase/homeworks?telegram_id=3001&limit=2&exclude_ids=${fixtureIds.approvedHomeworkId}`,
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.data.cycled, true)
+  assert.deepEqual(
+    new Set(body.data.homeworks.map((homework) => homework.id)),
+    new Set([fixtureIds.approvedHomeworkId, fixtureIds.secondStudentHomeworkId]),
+  )
+})
+
+test('showcase требует подтверждённый credential', async () => {
+  const { response, body } = await getJson('/api/showcase/homeworks?telegram_id=3001')
+  assert.equal(response.status, 401)
+  assert.equal(body.ok, false)
+})
+
+test('GET /api/showcase/homeworks/:id/file отдаёт approved media', async () => {
+  const response = await getResponse(
+    `/api/showcase/homeworks/${fixtureIds.approvedHomeworkId}/file?telegram_id=3001`,
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'image/jpeg')
+  assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
+  assert.equal(await response.text(), 'approved file')
+})
+
+test('showcase file различает неодобренную работу и неподдерживаемый тип', async () => {
+  const pending = await getJson(
+    `/api/showcase/homeworks/${fixtureIds.pendingHomeworkId}/file?telegram_id=3001`,
+    3001,
+  )
+  assert.equal(pending.response.status, 404)
+  assert.deepEqual(pending.body, { ok: false, error: 'Работа не найдена.' })
+
+  const document = await getJson(
+    `/api/showcase/homeworks/${fixtureIds.approvedDocumentHomeworkId}/file?telegram_id=3001`,
+    3001,
+  )
+  assert.equal(document.response.status, 404)
+  assert.deepEqual(document.body, {
+    ok: false,
+    error: 'Файл для предпросмотра недоступен.',
+  })
+})
+
 test('GET /api/guest/portfolio-students фиксирует публичный whitelist и сортировку', async () => {
   const { response, body } = await getJson('/api/guest/portfolio-students')
   assert.equal(response.status, 200)
@@ -330,7 +415,7 @@ test('GET /api/guest/portfolio-students фиксирует публичный wh
           student_track: 'intern',
           metro: 'Центральная',
           average_rating: 4.5,
-          works_count: 3,
+          works_count: 4,
           has_avatar: true,
         },
         {
@@ -351,7 +436,7 @@ test('GET /api/guest/portfolio-students фиксирует публичный wh
 test('legacy SEC-001: works_count публичного списка учитывает неодобренные работы', async () => {
   const { body } = await getJson('/api/guest/portfolio-students')
   const student = body.data.students.find((item) => item.id === fixtureIds.studentOneId)
-  assert.equal(student.works_count, 3)
+  assert.equal(student.works_count, 4)
 })
 
 test('GET /api/guest/students/:id/avatar фиксирует публичные заголовки и содержимое', async () => {

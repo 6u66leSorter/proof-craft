@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Param } from '@nestjs/common'
+import { parsePositiveId } from '../common/parse-positive-id.js'
 import { GetStudentPortfolioUseCase } from './get-student-portfolio.use-case.js'
-import { parsePositiveId } from './parse-positive-id.js'
 
 @Controller(['api/guest/students', 'guest/students'])
 export class StudentPortfolioController {

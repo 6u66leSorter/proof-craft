@@ -50,7 +50,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `GET /api/guest/students/:student_id/portfolio` реализован в NestJS и возвращает только `approved` работы и их вложения.
 - `GET /api/guest/students/:student_id/avatar` реализован в NestJS с безопасным разрешением пути и потоковой отдачей.
 - `GET /api/guest/homeworks/:id/file` и `GET /api/guest/homeworks/:homeworkId/attachments/:attachmentId/file` реализованы в NestJS: только `approved`, с проверкой принадлежности вложения, local/Telegram streaming и photo preview.
-- Следующий небольшой срез — авторизованная витрина `GET /api/showcase/homeworks` и её approved-only файл.
+- `GET /api/showcase/homeworks` и `GET /api/showcase/homeworks/:id/file` реализованы в NestJS с общей credential-проверкой, Prisma repository, дедупликацией, `exclude_ids`/`cycled` и общим storage adapter.
+- Следующий небольшой срез — чтение уведомлений `GET /api/notifications` с общей identity-границей.
 
 ### 5. Вывод legacy и миграция СУБД
 
