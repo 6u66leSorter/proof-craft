@@ -29,8 +29,8 @@ export class PrismaPortfolioStudentsRepository implements PortfolioStudentsRepos
         metro: true,
         avatar_file_id: true,
         homeworks: {
+          where: { status: PUBLIC_HOMEWORK_STATUS },
           select: {
-            status: true,
             homework_reviews: {
               where: {
                 status: PUBLIC_REVIEW_STATUS,
@@ -58,9 +58,7 @@ export class PrismaPortfolioStudentsRepository implements PortfolioStudentsRepos
             ratings.length > 0
               ? ratings.reduce((total, rating) => total + rating, 0) / ratings.length
               : null,
-          approvedWorksCount: row.homeworks.filter(
-            ({ status }) => status === PUBLIC_HOMEWORK_STATUS,
-          ).length,
+          approvedWorksCount: row.homeworks.length,
           hasAvatar: Boolean(row.avatar_file_id),
         }
       })

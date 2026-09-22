@@ -47,7 +47,8 @@ client -> nginx/router -> legacy Fastify :8787
 
 - `GET /api/session` реализован в NestJS и имеет статус `nest-ready`; production routing ещё обслуживает legacy.
 - `GET /api/guest/portfolio-students` реализован в NestJS; его `works_count` считает только публичные `approved` работы и не повторяет `SEC-001`.
-- Следующий маршрут — `GET /api/guest/students/:student_id/portfolio`; в нём нужно исключить pending/revision работы и их вложения.
+- `GET /api/guest/students/:student_id/portfolio` реализован в NestJS и возвращает только `approved` работы и их вложения.
+- Следующий маршрут — публичный аватар, затем основные и дополнительные файлы approved-работ с полной проверкой `SEC-001`.
 
 ### 5. Вывод legacy и миграция СУБД
 
