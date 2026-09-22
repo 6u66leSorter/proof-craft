@@ -34,16 +34,19 @@ client -> nginx/router -> legacy Fastify :8787
 - `db push` и Prisma migrations запрещены до отдельного решения.
 - Создан repository boundary; controller не обращается к Prisma напрямую.
 
-### 3. Identity и авторизация — следующий этап
+### 3. Identity и авторизация — завершён
 
-- Telegram, VK и web-session credentials.
-- `CurrentUser` и guards.
-- Role/policy checks.
-- Совместимость `telegram_id` на HTTP-границе без доверия этому полю как credential.
+- Проверяются Telegram init data, VK launch params и web-session.
+- `CurrentPrincipal`, authentication guard и role guard доступны следующим модулям.
+- `telegram_id` сохраняется на HTTP-границе, но сопоставляется с подписанным credential.
+- Общая identity-логика покрыта e2e-тестами через `/api/session`.
 
-### 4. Перенос маршрутов
+### 4. Перенос маршрутов — начат
 
 Порядок: session → публичные GET → уведомления/профили → административные GET → регистрации и модерация → назначения → чаты → домашние задания и файлы → проверки → web-auth/VK → Telegram-бот.
+
+- `GET /api/session` реализован в NestJS и имеет статус `nest-ready`; production routing ещё обслуживает legacy.
+- Следующая группа — публичные GET без авторизации, начиная со списка учеников витрины.
 
 ### 5. Вывод legacy и миграция СУБД
 

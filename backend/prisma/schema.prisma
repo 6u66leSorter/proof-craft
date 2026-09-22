@@ -231,14 +231,14 @@ model user_roles {
 
 model users {
   id                   Int                    @id @default(autoincrement())
-  telegram_id          Int                    @unique(map: "sqlite_autoindex_users_1")
+  telegram_id          BigInt                 @unique(map: "sqlite_autoindex_users_1")
   username             String?
   first_name           String?
   last_name            String?
   role                 String                 @default("guest")
   created_at           String                 @default("datetime('now')")
   updated_at           String                 @default("datetime('now')")
-  vk_user_id           Int?                   @unique(map: "idx_users_vk_user_id_unique", where: raw("INDEX idx_users_vk_user_id_unique ON users(vk_user_id)\n        WHERE vk_user_id IS NOT NULL"))
+  vk_user_id           BigInt?                @unique(map: "idx_users_vk_user_id_unique", where: raw("INDEX idx_users_vk_user_id_unique ON users(vk_user_id)\n        WHERE vk_user_id IS NOT NULL"))
   app_notifications    app_notifications[]
   audit_log            audit_log[]
   chat_messages        chat_messages[]

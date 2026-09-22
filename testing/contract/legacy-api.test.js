@@ -18,6 +18,8 @@ let baseUrl
 let temporaryRoot
 let serverOutput = ''
 const testBotToken = '123456:test-contract-token'
+const testVkSecret = 'legacy-contract-vk-secret'
+const testWebSessionToken = 'legacy-contract-web-session'
 
 const findFreePort = async () =>
   await new Promise((resolvePort, reject) => {
@@ -107,6 +109,30 @@ const seedLegacyDatabase = (databasePath) => {
     insertHomework.run(studentTwoId, 1, secondStudentFilePath, 'Работа второго ученика', 'approved', 'Бокс').lastInsertRowid,
   )
 
+  db.prepare(`
+    UPDATE users SET vk_user_id = ? WHERE id = ?
+  `).run(7001, studentOneUserId)
+  db.prepare(`
+    UPDATE students SET student_track = 'intern', about_me = ?, avatar_file_id = ? WHERE id = ?
+  `).run('О студенте', approvedFilePath, studentOneId)
+  const insertReview = db.prepare(`
+    INSERT INTO homework_reviews (homework_id, teacher_id, rating, status)
+    VALUES (?, ?, ?, 'approved')
+  `)
+  insertReview.run(approvedHomeworkId, teacherId, 4)
+  insertReview.run(approvedHomeworkId, teacherId, 5)
+  db.prepare(`
+    INSERT INTO app_notifications (user_id, kind, body)
+    VALUES (?, 'contract', 'Непрочитанное')
+  `).run(studentOneUserId)
+  db.prepare(`
+    INSERT INTO web_sessions (user_id, token_hash, expires_at)
+    VALUES (?, ?, datetime('now', '+1 day'))
+  `).run(
+    studentOneUserId,
+    crypto.createHash('sha256').update(testWebSessionToken).digest('hex'),
+  )
+
   db.close()
   return {
     approvedHomeworkId,
@@ -130,6 +156,19 @@ const buildTelegramInitData = (telegramUserId) => {
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(testBotToken).digest()
   const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex')
   params.set('hash', hash)
+  return params.toString()
+}
+
+const buildVkLaunchParams = (vkUserId) => {
+  const params = new URLSearchParams({
+    vk_app_id: '54558405',
+    vk_user_id: String(vkUserId),
+  })
+  const checkString = [...params.entries()]
+    .map(([key, value]) => `${key}=${value}`)
+    .sort()
+    .join('&')
+  params.set('sign', crypto.createHmac('sha256', testVkSecret).update(checkString).digest('base64url'))
   return params.toString()
 }
 
@@ -170,6 +209,9 @@ before(async () => {
       BOT_TOKEN: testBotToken,
       TELEGRAM_BOT_TOKEN: '',
       VITE_TELEGRAM_BOT_TOKEN: '',
+      VK_APP_ID: '54558405',
+      VK_APP_SECRET: testVkSecret,
+      VK_ID_OFFSET: '10000000000',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -205,6 +247,61 @@ test('GET /api/session возвращает профиль и роли учен�
   assert.deepEqual(body.data.roles, ['student'])
   assert.equal(body.data.student.full_name, 'Анна Ученица')
   assert.equal(body.data.student.teachers.length, 1)
+})
+
+test('GET /api/session фиксирует полный агрегированный контракт ученика', async () => {
+  const { response, body } = await getJson('/api/session?telegram_id=3001', 3001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      hasUser: true,
+      role: 'student',
+      roles: ['student'],
+      isAdmin: false,
+      isTeacher: false,
+      isStudent: true,
+      isGuest: false,
+      student: {
+        id: fixtureIds.studentOneId,
+        full_name: 'Анна Ученица',
+        phone: '+79990000001',
+        lessons_count: 10,
+        status: 'studying',
+        student_track: 'intern',
+        metro: 'Центральная',
+        about_me: 'О студенте',
+        has_avatar: true,
+        average_rating: 4.5,
+        ratings_count: 2,
+        teachers: [{ id: 1, full_name: 'Ирина Преподаватель' }],
+      },
+      teacher: null,
+      unread_notifications_count: 1,
+      vk_account_linked: true,
+    },
+  })
+})
+
+test('GET /api/session принимает web-session и подписанные VK launch params', async () => {
+  const webResponse = await fetch(`${baseUrl}/api/session?telegram_id=3001`, {
+    headers: { 'X-Web-Session': testWebSessionToken },
+  })
+  assert.equal(webResponse.status, 200)
+  assert.equal((await webResponse.json()).data.student.full_name, 'Анна Ученица')
+
+  const vkUserId = 7001
+  const claimedTelegramId = 10_000_000_000 + vkUserId
+  const vkResponse = await fetch(`${baseUrl}/api/session?telegram_id=${claimedTelegramId}`, {
+    headers: {
+      'X-Client-Platform': 'vk',
+      'X-VK-User-Id': String(vkUserId),
+      'X-App-User-Id': String(claimedTelegramId),
+      'X-VK-Launch-Params': buildVkLaunchParams(vkUserId),
+    },
+  })
+  assert.equal(vkResponse.status, 200)
+  assert.equal((await vkResponse.json()).data.student.full_name, 'Анна Ученица')
 })
 
 test('strict Telegram auth отклоняет запрос без init data', async () => {

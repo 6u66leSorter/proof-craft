@@ -13,6 +13,13 @@
 
 ## Зафиксированные решения
 
+### 2026-09-22 — HTTP identity определяется credential, а не полем telegram_id
+
+- **Контекст:** legacy-клиент передаёт `telegram_id` в query/body, но это поле само по себе не подтверждает личность; одновременно нужно сохранить текущий контракт фронтенда.
+- **Решение:** NestJS временно принимает `telegram_id`, authentication guard сопоставляет его с Telegram init data, подписанными VK launch params либо web-session и передаёт use case объект `CurrentPrincipal`. Проверки ролей вынесены в отдельный guard. `users.telegram_id` и `users.vk_user_id` представлены в Prisma как `BigInt` без изменения SQLite.
+- **Причина:** общий auth boundary исключает доверие пользовательскому полю и переиспользуется при переносе следующих маршрутов; `BigInt` покрывает идентификаторы за пределами 32 бит.
+- **Последствия:** `/api/session` готов к точечному переключению, но production routing пока не меняется. Nest-процесс с `SessionModule` требует `DATABASE_URL`; Prisma migrations и `db push` по-прежнему запрещены.
+
 ### 2026-09-22 — Prisma baseline не управляет схемой legacy SQLite
 
 - **Контекст:** NestJS должен читать существующую БД до переноса всех writers, а структура SQLite пока создаётся и мигрируется `bot/database.js`.

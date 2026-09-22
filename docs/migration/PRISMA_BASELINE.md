@@ -11,19 +11,21 @@ Prisma 7.10 подключена к существующей SQLite как но�
 - Физические имена моделей и полей сохранены без переименования.
 - `created_at`, `updated_at` и другие legacy timestamps остаются `String`, потому что в SQLite это `TEXT`.
 - `is_bonus` остаётся `Int`, потому что legacy хранит boolean как `0/1` с CHECK constraint.
+- `users.telegram_id` и `users.vk_user_id` представлены в Prisma как `BigInt`: реальные Telegram ID и синтетические VK ID могут превышать диапазон 32-битного `Int`. Физическая SQLite-колонка `INTEGER` при этом не изменялась, наружу repository возвращает безопасный JavaScript `number`.
 - CHECK constraints Prisma не заменяет доменными правилами; они будут отражены в DTO/use cases при переносе маршрутов.
 - Частичный уникальный индекс `users.vk_user_id` сохранён интроспекцией.
 - Каталог `prisma/migrations` намеренно отсутствует.
 
 ## Runtime boundary
 
-`PrismaService` инкапсулирует driver adapter и требует явный `DATABASE_URL=file:/absolute/path`. Controller не должен получать `PrismaService` напрямую. Первый boundary:
+`PrismaService` инкапсулирует driver adapter и требует явный `DATABASE_URL=file:/absolute/path`. Controller не должен получать `PrismaService` напрямую. Текущие boundary:
 
 ```text
 controller/use case -> UserIdentityRepository -> PrismaUserIdentityRepository -> PrismaService
+controller/use case -> SessionRepository -> PrismaSessionRepository -> PrismaService
 ```
 
-`AppModule` пока не импортирует persistence-модуль: `/health` не должен зависеть от доступности БД. Доменные модули будут подключать repository по мере переноса.
+`AppModule` подключает persistence через `SessionModule`, поэтому для запуска процесса теперь обязателен `DATABASE_URL`. Сам обработчик `/health` запросов к БД не выполняет; его изолированный e2e-тест не зависит от SQLite.
 
 ## Проверка drift
 

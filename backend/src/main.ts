@@ -16,6 +16,19 @@ const bootstrap = async (): Promise<void> => {
     AppModule,
     new FastifyAdapter({ logger: false }),
   )
+  app.enableCors({
+    origin: true,
+    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'X-Telegram-Init-Data',
+      'X-Client-Platform',
+      'X-VK-User-Id',
+      'X-App-User-Id',
+      'X-VK-Launch-Params',
+      'X-Web-Session',
+    ],
+  })
   app.enableShutdownHooks()
 
   const port = parsePort(process.env.NEST_API_PORT)
