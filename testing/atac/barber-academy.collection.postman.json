@@ -1,0 +1,265 @@
+{
+  "info": {
+    "name": "Barber Academy API Scenarios",
+    "_postman_id": "d8f4f9a9-1ab8-4ef4-92ee-3c2de7e6a111",
+    "description": "Main API scenarios for Barber Academy backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "A - Session and Base Checks",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health"
+          }
+        },
+        {
+          "name": "Session (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/session?telegram_id={{adminTelegramId}}"
+          }
+        },
+        {
+          "name": "Admin Students Moderation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/admin/students?telegram_id={{adminTelegramId}}&status=moderation"
+          }
+        },
+        {
+          "name": "Admin Teachers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/admin/teachers?telegram_id={{adminTelegramId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "B - Student Moderation",
+      "item": [
+        {
+          "name": "Approve Student",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telegram_id\": {{adminTelegramId}},\n  \"student_id\": {{studentId}},\n  \"action\": \"approve\"\n}"
+            },
+            "url": "{{baseUrl}}/api/admin/students"
+          }
+        },
+        {
+          "name": "Session (Student) After Approval",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/session?telegram_id={{studentTelegramId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "C - Teacher Assignment",
+      "item": [
+        {
+          "name": "Assign Student to Teacher",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telegram_id\": {{adminTelegramId}},\n  \"teacher_id\": {{teacherId}},\n  \"student_id\": {{studentId}}\n}"
+            },
+            "url": "{{baseUrl}}/api/admin/assign-student"
+          }
+        },
+        {
+          "name": "Teacher Students",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/teacher/students?telegram_id={{teacherTelegramId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "D - Student Homework Submit",
+      "item": [
+        {
+          "name": "Submit Homework (multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "telegram_id",
+                  "type": "text",
+                  "value": "{{studentTelegramId}}"
+                },
+                {
+                  "key": "is_bonus",
+                  "type": "text",
+                  "value": "0"
+                },
+                {
+                  "key": "lesson_number",
+                  "type": "text",
+                  "value": "1"
+                },
+                {
+                  "key": "haircut_name",
+                  "type": "text",
+                  "value": "ATAC smoke cut"
+                },
+                {
+                  "key": "text_content",
+                  "type": "text",
+                  "value": "Uploaded from ATAC scenario"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{homeworkFilePath}}"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/api/homeworks"
+          }
+        },
+        {
+          "name": "Student Homeworks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/student/homeworks?telegram_id={{studentTelegramId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "E - Teacher Review",
+      "item": [
+        {
+          "name": "Teacher Student Homeworks (include reviewed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/teacher/student-homeworks?telegram_id={{teacherTelegramId}}&student_id={{studentId}}&include_reviewed=true"
+          }
+        },
+        {
+          "name": "Approve Homework",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telegram_id\": {{teacherTelegramId}},\n  \"homework_id\": {{homeworkId}},\n  \"status\": \"approved\",\n  \"rating\": 5,\n  \"comment\": \"Looks good\"\n}"
+            },
+            "url": "{{baseUrl}}/api/teacher/review"
+          }
+        }
+      ]
+    },
+    {
+      "name": "F - Notifications and Audit",
+      "item": [
+        {
+          "name": "Student Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/notifications?telegram_id={{studentTelegramId}}&limit=40"
+          }
+        },
+        {
+          "name": "Mark Notifications Read All",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telegram_id\": {{studentTelegramId}},\n  \"read_all\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/notifications/read"
+          }
+        },
+        {
+          "name": "Admin Audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/admin/audit?telegram_id={{adminTelegramId}}&limit=50"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8787"
+    },
+    {
+      "key": "adminTelegramId",
+      "value": "111111111"
+    },
+    {
+      "key": "teacherTelegramId",
+      "value": "222222222"
+    },
+    {
+      "key": "studentTelegramId",
+      "value": "333333333"
+    },
+    {
+      "key": "teacherId",
+      "value": "1"
+    },
+    {
+      "key": "studentId",
+      "value": "1"
+    },
+    {
+      "key": "homeworkId",
+      "value": "1"
+    },
+    {
+      "key": "homeworkFilePath",
+      "value": "testing/atac/fixtures/homework-sample.txt"
+    }
+  ]
+}

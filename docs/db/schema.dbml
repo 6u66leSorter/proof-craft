@@ -1,0 +1,156 @@
+Project barber_academy {
+  database_type: "SQLite"
+  Note: "ER schema based on bot/database.js"
+}
+
+Table users {
+  id integer [pk, increment]
+  telegram_id integer [not null, unique]
+  username text
+  first_name text
+  last_name text
+  role text [not null, default: 'student', note: "student|teacher|admin (legacy role)"]
+  created_at text [not null, default: "datetime('now')"]
+  updated_at text [not null, default: "datetime('now')"]
+}
+
+Table user_roles {
+  id integer [pk, increment]
+  user_id integer [not null]
+  role text [not null, note: "student|teacher|admin"]
+  created_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    (user_id, role) [unique]
+    user_id
+    role
+  }
+}
+
+Table students {
+  id integer [pk, increment]
+  user_id integer [not null, unique]
+  full_name text [not null]
+  phone text [not null]
+  lessons_count integer [not null]
+  status text [not null, default: 'moderation', note: "moderation|active|rejected"]
+  created_at text [not null, default: "datetime('now')"]
+  updated_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    user_id
+    status
+  }
+}
+
+Table teachers {
+  id integer [pk, increment]
+  user_id integer [not null, unique]
+  full_name text [not null]
+  created_at text [not null, default: "datetime('now')"]
+  updated_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    user_id
+  }
+}
+
+Table student_teachers {
+  id integer [pk, increment]
+  student_id integer [not null]
+  teacher_id integer [not null]
+  created_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    (student_id, teacher_id) [unique]
+    student_id
+    teacher_id
+  }
+}
+
+Table homeworks {
+  id integer [pk, increment]
+  student_id integer [not null]
+  lesson_number integer
+  is_bonus integer [not null, default: 0, note: "0|1"]
+  content_type text [not null, note: "photo|video|text|document"]
+  file_id text
+  text_content text
+  status text [not null, default: 'pending', note: "pending|approved|rejected|revision"]
+  haircut_name text
+  created_at text [not null, default: "datetime('now')"]
+  updated_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    student_id
+    status
+  }
+}
+
+Table homework_reviews {
+  id integer [pk, increment]
+  homework_id integer [not null]
+  teacher_id integer [not null]
+  rating integer [note: "1..5"]
+  comment text
+  status text [not null, note: "approved|rejected"]
+  created_at text [not null, default: "datetime('now')"]
+  updated_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    homework_id
+    teacher_id
+  }
+}
+
+Table homework_comments {
+  id integer [pk, increment]
+  homework_id integer [not null]
+  author_user_id integer [not null]
+  text_content text [not null]
+  created_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    (homework_id, id)
+  }
+}
+
+Table app_notifications {
+  id integer [pk, increment]
+  user_id integer [not null]
+  kind text [not null]
+  body text [not null]
+  payload text
+  read_at text
+  created_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    user_id
+    (user_id, read_at)
+  }
+}
+
+Table audit_log {
+  id integer [pk, increment]
+  actor_user_id integer [not null]
+  action text [not null]
+  meta text
+  created_at text [not null, default: "datetime('now')"]
+
+  Indexes {
+    created_at
+  }
+}
+
+Ref: user_roles.user_id > users.id [delete: cascade]
+Ref: students.user_id > users.id [delete: cascade]
+Ref: teachers.user_id > users.id [delete: cascade]
+Ref: student_teachers.student_id > students.id [delete: cascade]
+Ref: student_teachers.teacher_id > teachers.id [delete: cascade]
+Ref: homeworks.student_id > students.id [delete: cascade]
+Ref: homework_reviews.homework_id > homeworks.id [delete: cascade]
+Ref: homework_reviews.teacher_id > teachers.id [delete: cascade]
+Ref: homework_comments.homework_id > homeworks.id [delete: cascade]
+Ref: homework_comments.author_user_id > users.id [delete: cascade]
+Ref: app_notifications.user_id > users.id [delete: cascade]
+Ref: audit_log.actor_user_id > users.id
