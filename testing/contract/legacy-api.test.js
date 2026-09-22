@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import crypto from 'node:crypto'
 import { cp, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -15,6 +17,7 @@ let apiProcess
 let baseUrl
 let temporaryRoot
 let serverOutput = ''
+const testBotToken = '123456:test-contract-token'
 
 const findFreePort = async () =>
   await new Promise((resolvePort, reject) => {
@@ -46,6 +49,14 @@ const waitForHealth = async () => {
 
 const seedLegacyDatabase = (databasePath) => {
   const db = new Database(databasePath)
+  const uploadsDir = join(dirname(databasePath), 'uploads')
+  mkdirSync(uploadsDir, { recursive: true })
+  const approvedFilePath = join(uploadsDir, 'approved.txt')
+  const pendingFilePath = join(uploadsDir, 'pending.txt')
+  const secondStudentFilePath = join(uploadsDir, 'second-student.txt')
+  writeFileSync(approvedFilePath, 'approved file')
+  writeFileSync(pendingFilePath, 'pending file')
+  writeFileSync(secondStudentFilePath, 'second student file')
   const insertUser = db.prepare(`
     INSERT INTO users (telegram_id, first_name, last_name, role)
     VALUES (?, ?, ?, ?)
@@ -82,23 +93,60 @@ const seedLegacyDatabase = (databasePath) => {
 
   const insertHomework = db.prepare(`
     INSERT INTO homeworks
-      (student_id, lesson_number, is_bonus, content_type, text_content, status, haircut_name)
-    VALUES (?, ?, 0, 'text', ?, ?, ?)
+      (student_id, lesson_number, is_bonus, content_type, file_id, text_content, status, haircut_name)
+    VALUES (?, ?, 0, 'text', ?, ?, ?, ?)
   `)
-  insertHomework.run(studentOneId, 1, 'Одобренная работа', 'approved', 'Фейд')
-  insertHomework.run(studentOneId, 2, 'Работа на проверке', 'pending', 'Кроп')
-  insertHomework.run(studentOneId, 3, 'Работа на доработке', 'revision', 'Классика')
-  insertHomework.run(studentTwoId, 1, 'Работа второго ученика', 'approved', 'Бокс')
+  const approvedHomeworkId = Number(
+    insertHomework.run(studentOneId, 1, approvedFilePath, 'Одобренная работа', 'approved', 'Фейд').lastInsertRowid,
+  )
+  const pendingHomeworkId = Number(
+    insertHomework.run(studentOneId, 2, pendingFilePath, 'Работа на проверке', 'pending', 'Кроп').lastInsertRowid,
+  )
+  insertHomework.run(studentOneId, 3, null, 'Работа на доработке', 'revision', 'Классика')
+  const secondStudentHomeworkId = Number(
+    insertHomework.run(studentTwoId, 1, secondStudentFilePath, 'Работа второго ученика', 'approved', 'Бокс').lastInsertRowid,
+  )
 
   db.close()
-  return { studentOneId, studentTwoId }
+  return {
+    approvedHomeworkId,
+    pendingHomeworkId,
+    secondStudentHomeworkId,
+    studentOneId,
+    studentTwoId,
+  }
 }
 
-const getJson = async (path) => {
-  const response = await fetch(`${baseUrl}${path}`)
+const buildTelegramInitData = (telegramUserId) => {
+  const params = new URLSearchParams({
+    auth_date: String(Math.floor(Date.now() / 1000)),
+    query_id: `contract-${telegramUserId}`,
+    user: JSON.stringify({ id: telegramUserId, first_name: 'Contract' }),
+  })
+  const dataCheckString = [...params.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(testBotToken).digest()
+  const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex')
+  params.set('hash', hash)
+  return params.toString()
+}
+
+const getResponse = async (path, telegramUserId = null) => {
+  const headers = telegramUserId == null
+    ? {}
+    : { 'X-Telegram-Init-Data': buildTelegramInitData(telegramUserId) }
+  return await fetch(`${baseUrl}${path}`, { headers })
+}
+
+const getJson = async (path, telegramUserId = null) => {
+  const response = await getResponse(path, telegramUserId)
   const body = await response.json()
   return { response, body }
 }
+
+let fixtureIds
 
 before(async () => {
   temporaryRoot = await mkdtemp(join(os.tmpdir(), 'proof-craft-legacy-'))
@@ -117,9 +165,9 @@ before(async () => {
       ...process.env,
       API_HOST: '127.0.0.1',
       API_PORT: String(port),
-      TG_WEBAPP_AUTH: 'off',
+      TG_WEBAPP_AUTH: 'strict',
       API_PREFIX_STRIP_REWRITE: '0',
-      BOT_TOKEN: '',
+      BOT_TOKEN: testBotToken,
       TELEGRAM_BOT_TOKEN: '',
       VITE_TELEGRAM_BOT_TOKEN: '',
     },
@@ -129,7 +177,7 @@ before(async () => {
   apiProcess.stderr.on('data', (chunk) => { serverOutput += String(chunk) })
 
   await waitForHealth()
-  seedLegacyDatabase(join(isolatedProject, 'data', 'barber.db'))
+  fixtureIds = seedLegacyDatabase(join(isolatedProject, 'data', 'barber.db'))
 })
 
 after(async () => {
@@ -150,13 +198,25 @@ test('GET /health сообщает о готовности legacy API', async ()
 })
 
 test('GET /api/session возвращает профиль и роли ученика', async () => {
-  const { response, body } = await getJson('/api/session?telegram_id=3001')
+  const { response, body } = await getJson('/api/session?telegram_id=3001', 3001)
   assert.equal(response.status, 200)
   assert.equal(body.ok, true)
   assert.equal(body.data.role, 'student')
   assert.deepEqual(body.data.roles, ['student'])
   assert.equal(body.data.student.full_name, 'Анна Ученица')
   assert.equal(body.data.student.teachers.length, 1)
+})
+
+test('strict Telegram auth отклоняет запрос без init data', async () => {
+  const { response, body } = await getJson('/api/session?telegram_id=3001')
+  assert.equal(response.status, 401)
+  assert.equal(body.ok, false)
+})
+
+test('strict Telegram auth отклоняет несовпадающий telegram_id', async () => {
+  const { response, body } = await getJson('/api/session?telegram_id=3001', 3002)
+  assert.equal(response.status, 403)
+  assert.equal(body.ok, false)
 })
 
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {
@@ -172,18 +232,51 @@ test('legacy SEC-001: публичный профиль сейчас возвр�
 })
 
 test('legacy SEC-002: преподаватель сейчас получает чаты всех активных учеников', async () => {
-  const { response, body } = await getJson('/api/chats/students?telegram_id=2001')
+  const { response, body } = await getJson('/api/chats/students?telegram_id=2001', 2001)
   assert.equal(response.status, 200)
   assert.equal(body.data.students.length, 2)
 })
 
 test('legacy BUG-001: фильтр completed сейчас возвращает и studying-учеников', async () => {
-  const { response, body } = await getJson('/api/admin/students?telegram_id=1001&status=completed')
+  const { response, body } = await getJson('/api/admin/students?telegram_id=1001&status=completed', 1001)
   assert.equal(response.status, 200)
   assert.equal(body.data.students.length, 2)
   assert.ok(body.data.students.every((student) => student.status === 'studying'))
 })
 
+test('владелец, назначенный преподаватель и администратор читают файл работы', async () => {
+  const path = `/api/homeworks/${fixtureIds.pendingHomeworkId}/file?telegram_id=`
+  const owner = await getResponse(`${path}3001`, 3001)
+  const teacher = await getResponse(`${path}2001`, 2001)
+  const admin = await getResponse(`${path}1001`, 1001)
+
+  assert.equal(owner.status, 200)
+  assert.equal(teacher.status, 200)
+  assert.equal(admin.status, 200)
+  assert.equal(await owner.text(), 'pending file')
+})
+
+test('посторонний ученик и неназначенный преподаватель не читают файл работы', async () => {
+  const student = await getJson(
+    `/api/homeworks/${fixtureIds.pendingHomeworkId}/file?telegram_id=3002`,
+    3002,
+  )
+  const teacher = await getJson(
+    `/api/homeworks/${fixtureIds.secondStudentHomeworkId}/file?telegram_id=2001`,
+    2001,
+  )
+
+  assert.equal(student.response.status, 403)
+  assert.equal(teacher.response.status, 403)
+})
+
+test('legacy SEC-001: публичная файловая ручка сейчас отдаёт pending-работу', async () => {
+  const response = await getResponse(`/api/guest/homeworks/${fixtureIds.pendingHomeworkId}/file`)
+  assert.equal(response.status, 200)
+  assert.equal(await response.text(), 'pending file')
+})
+
 test.todo('SEC-001: публичный профиль должен возвращать только approved-работы')
+test.todo('SEC-001: публичная файловая ручка должна отклонять не-approved работу')
 test.todo('SEC-002: преподаватель должен получать чаты только назначенных учеников')
 test.todo('BUG-001: admin/students должен точно фильтровать studying и completed')
