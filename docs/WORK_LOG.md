@@ -19,7 +19,7 @@
 ### 2026-09-22 — Перенос публичного списка портфолио
 
 - **Цель:** перенести первый публичный GET в NestJS без раскрытия служебных полей и без закрепления дефекта `SEC-001`.
-- **Сделано:** добавлены `PublicPortfolioModule`, controller, use case и Prisma repository для `GET /api/guest/portfolio-students`. Repository одним агрегирующим запросом выбирает только профили `studying`, сохраняет legacy-сортировку `COLLATE NOCASE`, вычисляет рейтинг и считает только `approved` работы. Общая подготовка временной legacy SQLite вынесена в тестовый helper.
+- **Сделано:** добавлены `PublicPortfolioModule`, controller, use case и Prisma repository для `GET /api/guest/portfolio-students`. Repository использует только Prisma query API, выбирает профили `studying` со связанными работами и проверками, а затем явно вычисляет рейтинг, approved-only счётчик и регистронезависимую сортировку. Общая подготовка временной legacy SQLite вынесена в тестовый helper.
 - **Проверка:** legacy — 14 успешных тестов и 4 целевых TODO; NestJS — 16 успешных тестов. Проверены точный whitelist ответа, сортировка, исключение непубличных профилей, nginx-путь без `/api` и approved-only `works_count`.
 - **Вывод:** маршрут имеет статус `nest-ready`; форма ответа совместима, единственное осознанное отличие — исправленный публичный счётчик работ. Production routing, рабочая БД и Prisma migrations не менялись.
 - **Следующий шаг:** перенести `GET /api/guest/students/:student_id/portfolio`, возвращая только approved-работы и вложения.
