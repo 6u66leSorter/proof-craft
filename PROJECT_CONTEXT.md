@@ -8,7 +8,7 @@
 
 - Клиент: vanilla JavaScript, CSS, Vite 7 (`src/`); один билд выбирает Telegram/VK по launch-параметрам.
 - Сервер: Node.js (ES modules), Fastify 5, Zod, `@fastify/cors`, `@fastify/multipart`.
-- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); `/health`, `/api/session`, публичные список, профиль и аватар портфолио готовы к точечному переключению, production продолжает обслуживать legacy API.
+- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); `/health`, `/api/session`, публичные список, профиль, аватар и файлы портфолио готовы к точечному переключению, production продолжает обслуживать legacy API.
 - Бот: `node-telegram-bot-api`.
 - Данные: SQLite через `better-sqlite3`; изображения обрабатывает `sharp`.
 - Прод: PM2 и nginx (маршрутизация `/api` поддерживает сценарий, где nginx срезает префикс).
@@ -45,6 +45,7 @@
 - Дополнительные рабочие сущности: `teacher_applications`, `vk_link_tokens`, `student_profile_edits`, `web_login_requests`, `web_sessions`, `private_feedback`, `feedback_invites`. У профилей ученика и преподавателя есть текстовое поле `about_me`.
 - Обратная связь ученика хранится отдельно от чатов и доступна только ученику-автору при отправке и администраторам при просмотре. Преподаватели не получают её через API, уведомления или бот. После принятия уроков 5, 10 и 15 создаётся одно приглашение к отзыву; бот отправляет его при наличии `WEB_APP_URL` с HTTPS.
 - Файлы ДЗ и вложения API хранит в `data/uploads`; размер одного загружаемого файла ограничивается настройкой, по умолчанию 450 МБ.
+- В новом backend публичные файлы и вложения доступны только для `approved`-работ учеников `studying`; storage adapter безопасно открывает локальные файлы, проксирует Telegram file ID и генерирует JPEG-preview фото.
 - Аватар ученика хранится файлом в `data/uploads` (`students.avatar_file_id`) и отдаётся тремя путями: `/api/student/me/avatar` — самому ученику, `/api/students/:id/avatar` — ему же, его преподавателям и администратору, `/api/guest/students/:id/avatar` — публично, но только для профилей со статусом `studying`, которые уже показаны в гостевой витрине. Признак `has_avatar` возвращают ответы для ученика, преподавателя, администратора и гостя; если он `false`, интерфейс оставляет прежнюю заглушку.
 - У одного ДЗ может быть неограниченная лента комментариев преподавателя и ученика; комментарии не заменяют оценку и доступны только ученику-владельцу, его закреплённым преподавателям и администратору.
 - Telegram- и VK-пользователи сопоставляются с внутренними пользователями; для VK предусмотрено связывание аккаунта через одноразовый токен.
@@ -92,7 +93,7 @@ npm run build
 
 - `npm test` запускает characterization-тесты legacy API и e2e-тесты NestJS. Legacy-тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
 - Проверка NestJS отдельно: `npm run test:backend`, `npm --prefix backend run typecheck`, `npm run backend:build`.
-- Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичный список, профиль и потоковую отдачу аватара, включая approved-only работы, файловые признаки и cache headers.
+- Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичный список, профиль, аватар и файлы работ, включая approved-only доступ, принадлежность вложения, preview и cache headers.
 - `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
 - `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.
 - Перед изменениями API проверять затронутые сценарии ATAC; для клиентских изменений вручную проходить сценарий соответствующей роли в Telegram и VK.

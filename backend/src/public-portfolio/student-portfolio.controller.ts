@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Param } from '@nestjs/common'
 import { GetStudentPortfolioUseCase } from './get-student-portfolio.use-case.js'
-import { parseStudentId } from './parse-student-id.js'
+import { parsePositiveId } from './parse-positive-id.js'
 
 @Controller(['api/guest/students', 'guest/students'])
 export class StudentPortfolioController {
@@ -11,6 +11,6 @@ export class StudentPortfolioController {
 
   @Get(':student_id/portfolio')
   async show(@Param('student_id') studentId: string): Promise<object> {
-    return await this.getStudentPortfolio.execute(parseStudentId(studentId))
+    return await this.getStudentPortfolio.execute(parsePositiveId(studentId))
   }
 }

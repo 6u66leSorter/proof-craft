@@ -12,18 +12,21 @@ import { createLegacyDatabase } from './support/legacy-database.js'
 let temporaryRoot: string
 let app: NestFastifyApplication
 
+const attachmentSvg =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="red"/></svg>'
+
 const seedPortfolio = (databasePath: string): void => {
   const db = new Database(databasePath)
   const uploadsDirectory = join(dirname(databasePath), 'uploads')
   mkdirSync(uploadsDirectory, { recursive: true })
   const approvedFile = join(uploadsDirectory, 'approved-work.txt')
   const pendingFile = join(uploadsDirectory, 'pending-work.txt')
-  const localAttachment = join(uploadsDirectory, 'approved-attachment.txt')
+  const localAttachment = join(uploadsDirectory, 'approved-attachment.svg')
   const avatarFile = join(uploadsDirectory, 'alice-avatar.jpg')
   const missingAvatarFile = join(uploadsDirectory, 'missing-avatar.jpg')
   writeFileSync(approvedFile, 'approved')
   writeFileSync(pendingFile, 'pending')
-  writeFileSync(localAttachment, 'attachment')
+  writeFileSync(localAttachment, attachmentSvg)
   writeFileSync(avatarFile, 'avatar-content')
 
   const insertUser = db.prepare(`
@@ -81,16 +84,18 @@ const seedPortfolio = (databasePath: string): void => {
       '2026-01-01 12:00:00',
     ).lastInsertRowid,
   )
-  insertHomework.run(
-    aliceStudentId,
-    2,
-    0,
-    'document',
-    pendingFile,
-    'Скрытая работа',
-    'pending',
-    'Кроп',
-    '2026-02-01 12:00:00',
+  const pendingHomeworkId = Number(
+    insertHomework.run(
+      aliceStudentId,
+      2,
+      0,
+      'document',
+      pendingFile,
+      'Скрытая работа',
+      'pending',
+      'Кроп',
+      '2026-02-01 12:00:00',
+    ).lastInsertRowid,
   )
   insertHomework.run(aliceStudentId, 3, 0, 'text', null, 'Доработка', 'revision', null, '2026-03-01 12:00:00')
   insertHomework.run(bobStudentId, 1, 1, 'text', null, 'Бонус', 'approved', null, '2026-01-02 12:00:00')
@@ -104,11 +109,15 @@ const seedPortfolio = (databasePath: string): void => {
   db.prepare(`
     INSERT INTO homework_files (homework_id, file_id, content_type, sort_order)
     VALUES (?, ?, ?, ?)
-  `).run(approvedHomeworkId, localAttachment, 'document', 0)
+  `).run(approvedHomeworkId, localAttachment, 'photo', 0)
   db.prepare(`
     INSERT INTO homework_files (homework_id, file_id, content_type, sort_order)
     VALUES (?, ?, ?, ?)
   `).run(approvedHomeworkId, 'telegram-file-id-12345', 'photo', 1)
+  db.prepare(`
+    INSERT INTO homework_files (homework_id, file_id, content_type, sort_order)
+    VALUES (?, ?, ?, ?)
+  `).run(pendingHomeworkId, pendingFile, 'document', 0)
   db.close()
 }
 
@@ -174,7 +183,7 @@ const expectedStudentPortfolio = {
         attachments: [
           {
             id: 1,
-            content_type: 'document',
+            content_type: 'photo',
             has_local_file: true,
             has_telegram_file: false,
           },
@@ -296,4 +305,88 @@ test('GET /guest/students/:id/avatar поддерживает nginx без /api'
   const response = await app.inject({ method: 'GET', url: '/guest/students/1/avatar' })
   assert.equal(response.statusCode, 200)
   assert.equal(response.body, 'avatar-content')
+})
+
+test('GET /api/guest/homeworks/:id/file отдаёт файл approved-работы', async () => {
+  const response = await app.inject({ method: 'GET', url: '/api/guest/homeworks/1/file' })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.headers['content-type'], 'application/octet-stream')
+  assert.equal(response.headers['cross-origin-resource-policy'], 'cross-origin')
+  assert.equal(response.body, 'approved')
+})
+
+test('GET публичного фото с preview возвращает JPEG', async () => {
+  const response = await app.inject({
+    method: 'GET',
+    url: '/api/guest/homeworks/1/attachments/1/file?preview=1',
+  })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.headers['content-type'], 'image/jpeg')
+  assert.deepEqual([...response.rawPayload.subarray(0, 2)], [0xff, 0xd8])
+})
+
+test('публичная файловая ручка не отдаёт pending-работу', async () => {
+  const response = await app.inject({ method: 'GET', url: '/api/guest/homeworks/2/file' })
+  assert.equal(response.statusCode, 404)
+  assert.deepEqual(response.json(), { ok: false, error: 'Работа не найдена.' })
+})
+
+test('GET /api/guest/homeworks/:id/attachments/:id/file отдаёт approved-вложение', async () => {
+  const response = await app.inject({
+    method: 'GET',
+    url: '/api/guest/homeworks/1/attachments/1/file',
+  })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.headers['content-type'], 'image/jpeg')
+  assert.equal(response.headers['cross-origin-resource-policy'], 'cross-origin')
+  assert.equal(response.body, attachmentSvg)
+})
+
+test('публичное вложение проверяет работу, статус и профиль', async (context) => {
+  await context.test('pending-работа недоступна', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/guest/homeworks/2/attachments/3/file',
+    })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Работа не найдена.' })
+  })
+
+  await context.test('вложение должно принадлежать работе из URL', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/guest/homeworks/4/attachments/1/file',
+    })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Вложение не найдено.' })
+  })
+})
+
+test('публичные файлы сохраняют 400-контракт и nginx-путь', async (context) => {
+  await context.test('некорректный id', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/guest/homeworks/nope/file' })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Некорректные параметры запроса.',
+    })
+  })
+
+  await context.test('некорректный preview', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/guest/homeworks/1/file?preview=0',
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Некорректные параметры запроса.',
+    })
+  })
+
+  await context.test('nginx без /api', async () => {
+    const response = await app.inject({ method: 'GET', url: '/guest/homeworks/1/file' })
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.body, 'approved')
+  })
 })

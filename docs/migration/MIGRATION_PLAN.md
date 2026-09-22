@@ -49,7 +49,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `GET /api/guest/portfolio-students` реализован в NestJS; его `works_count` считает только публичные `approved` работы и не повторяет `SEC-001`.
 - `GET /api/guest/students/:student_id/portfolio` реализован в NestJS и возвращает только `approved` работы и их вложения.
 - `GET /api/guest/students/:student_id/avatar` реализован в NestJS с безопасным разрешением пути и потоковой отдачей.
-- Следующие маршруты — основной и дополнительный файлы approved-работ с полной проверкой `SEC-001`.
+- `GET /api/guest/homeworks/:id/file` и `GET /api/guest/homeworks/:homeworkId/attachments/:attachmentId/file` реализованы в NestJS: только `approved`, с проверкой принадлежности вложения, local/Telegram streaming и photo preview.
+- Следующий небольшой срез — авторизованная витрина `GET /api/showcase/homeworks` и её approved-only файл.
 
 ### 5. Вывод legacy и миграция СУБД
 
