@@ -8,7 +8,7 @@
 
 - Клиент: vanilla JavaScript, CSS, Vite 7 (`src/`); один билд выбирает Telegram/VK по launch-параметрам.
 - Сервер: Node.js (ES modules), Fastify 5, Zod, `@fastify/cors`, `@fastify/multipart`.
-- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); `/health`, `/api/session`, публичный список и профиль портфолио готовы к точечному переключению, production продолжает обслуживать legacy API.
+- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); `/health`, `/api/session`, публичные список, профиль и аватар портфолио готовы к точечному переключению, production продолжает обслуживать legacy API.
 - Бот: `node-telegram-bot-api`.
 - Данные: SQLite через `better-sqlite3`; изображения обрабатывает `sharp`.
 - Прод: PM2 и nginx (маршрутизация `/api` поддерживает сценарий, где nginx срезает префикс).
@@ -92,7 +92,7 @@ npm run build
 
 - `npm test` запускает characterization-тесты legacy API и e2e-тесты NestJS. Legacy-тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
 - Проверка NestJS отдельно: `npm run test:backend`, `npm --prefix backend run typecheck`, `npm run backend:build`.
-- Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичный список и профиль портфолио, включая approved-only работы и файловые признаки.
+- Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичный список, профиль и потоковую отдачу аватара, включая approved-only работы, файловые признаки и cache headers.
 - `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
 - `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.
 - Перед изменениями API проверять затронутые сценарии ATAC; для клиентских изменений вручную проходить сценарий соответствующей роли в Telegram и VK.

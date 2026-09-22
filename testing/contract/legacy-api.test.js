@@ -354,6 +354,25 @@ test('legacy SEC-001: works_count публичного списка учитыв
   assert.equal(student.works_count, 3)
 })
 
+test('GET /api/guest/students/:id/avatar фиксирует публичные заголовки и содержимое', async () => {
+  const response = await getResponse(`/api/guest/students/${fixtureIds.studentOneId}/avatar`)
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'image/jpeg')
+  assert.equal(response.headers.get('cache-control'), 'public, max-age=3600')
+  assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
+  assert.equal(await response.text(), 'approved file')
+})
+
+test('GET /api/guest/students/:id/avatar сохраняет ошибки недоступного аватара', async () => {
+  const missing = await getJson(`/api/guest/students/${fixtureIds.studentTwoId}/avatar`)
+  assert.equal(missing.response.status, 404)
+  assert.deepEqual(missing.body, { ok: false, error: 'Аватар не установлен.' })
+
+  const invalid = await getJson('/api/guest/students/nope/avatar')
+  assert.equal(invalid.response.status, 400)
+  assert.deepEqual(invalid.body, { ok: false, error: 'Некорректные параметры запроса.' })
+})
+
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {
   const studentsResult = await getJson('/api/guest/portfolio-students')
   const student = studentsResult.body.data.students.find((item) => item.full_name === 'Анна Ученица')

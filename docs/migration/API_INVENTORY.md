@@ -71,7 +71,7 @@
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/guest/portfolio-students` | публичный | Профили учеников `studying`; `works_count` считает только `approved` | medium | nest-ready |
 | GET | `/api/guest/students/:student_id/portfolio` | публичный | Профиль и только `approved` работы ученика | high | nest-ready |
-| GET | `/api/guest/students/:student_id/avatar` | публичный | Аватар видимого ученика | medium | legacy |
+| GET | `/api/guest/students/:student_id/avatar` | публичный | Аватар видимого ученика из безопасного uploads-каталога | medium | nest-ready |
 | GET | `/api/guest/homeworks/:id/file` | публичный | Файл работы видимого ученика | high | legacy |
 | GET | `/api/guest/homeworks/:homeworkId/attachments/:attachmentId/file` | публичный | Дополнительный файл работы | high | legacy |
 | GET | `/api/showcase/homeworks` | авторизованный пользователь | Случайные одобренные работы | medium | legacy |

@@ -1,4 +1,5 @@
-import { existsSync, realpathSync } from 'node:fs'
+import { createReadStream, existsSync, realpathSync } from 'node:fs'
+import type { Readable } from 'node:stream'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Injectable } from '@nestjs/common'
@@ -15,21 +16,26 @@ const resolveUploadsDirectory = (): string => {
 @Injectable()
 export class LegacyFileReferenceService implements FileReferenceService {
   getAvailability(fileId: string | null): FileAvailability {
-    const hasLocalFile = this.isLocalUpload(fileId)
+    const hasLocalFile = this.resolveLocalUpload(fileId) != null
     return {
       hasLocalFile,
       hasTelegramFile: !hasLocalFile && this.isTelegramFileId(fileId),
     }
   }
 
-  private isLocalUpload(fileId: string | null): boolean {
-    if (!fileId || !existsSync(fileId)) return false
+  openLocalFile(fileId: string | null): Readable | null {
+    const resolvedPath = this.resolveLocalUpload(fileId)
+    return resolvedPath ? createReadStream(resolvedPath) : null
+  }
+
+  private resolveLocalUpload(fileId: string | null): string | null {
+    if (!fileId || !existsSync(fileId)) return null
     try {
       const resolvedFile = realpathSync(fileId)
       const resolvedUploads = realpathSync(resolveUploadsDirectory())
-      return resolvedFile.startsWith(`${resolvedUploads}${sep}`)
+      return resolvedFile.startsWith(`${resolvedUploads}${sep}`) ? resolvedFile : null
     } catch {
-      return false
+      return null
     }
   }
 

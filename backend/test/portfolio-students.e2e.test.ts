@@ -19,9 +19,12 @@ const seedPortfolio = (databasePath: string): void => {
   const approvedFile = join(uploadsDirectory, 'approved-work.txt')
   const pendingFile = join(uploadsDirectory, 'pending-work.txt')
   const localAttachment = join(uploadsDirectory, 'approved-attachment.txt')
+  const avatarFile = join(uploadsDirectory, 'alice-avatar.jpg')
+  const missingAvatarFile = join(uploadsDirectory, 'missing-avatar.jpg')
   writeFileSync(approvedFile, 'approved')
   writeFileSync(pendingFile, 'pending')
   writeFileSync(localAttachment, 'attachment')
+  writeFileSync(avatarFile, 'avatar-content')
 
   const insertUser = db.prepare(`
     INSERT INTO users (telegram_id, first_name, role)
@@ -46,11 +49,11 @@ const seedPortfolio = (databasePath: string): void => {
       'intern',
       'Центральная',
       'Публичное описание',
-      '/tmp/alice-avatar.jpg',
+      avatarFile,
     ).lastInsertRowid,
   )
   const bobStudentId = Number(
-    insertStudent.run(bobUserId, 'Bob Barber', 15, 'studying', 'barber', null, null, null).lastInsertRowid,
+    insertStudent.run(bobUserId, 'Bob Barber', 15, 'studying', 'barber', null, null, missingAvatarFile).lastInsertRowid,
   )
   insertStudent.run(completedUserId, 'Aaron Completed', 15, 'completed', 'student', 'Южная', null, null)
 
@@ -131,7 +134,7 @@ const expectedResponse = {
         metro: null,
         average_rating: null,
         works_count: 1,
-        has_avatar: false,
+        has_avatar: true,
       },
     ],
   },
@@ -255,4 +258,42 @@ test('GET /guest/students/:id/portfolio поддерживает nginx без /a
   const response = await app.inject({ method: 'GET', url: '/guest/students/1/portfolio' })
   assert.equal(response.statusCode, 200)
   assert.deepEqual(response.json(), expectedStudentPortfolio)
+})
+
+test('GET /api/guest/students/:id/avatar отдаёт публичный JPEG с cache headers', async () => {
+  const response = await app.inject({ method: 'GET', url: '/api/guest/students/1/avatar' })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.headers['content-type'], 'image/jpeg')
+  assert.equal(response.headers['cache-control'], 'public, max-age=3600')
+  assert.equal(response.headers['cross-origin-resource-policy'], 'cross-origin')
+  assert.equal(response.body, 'avatar-content')
+})
+
+test('публичный аватар различает недоступный профиль и отсутствующий файл', async (context) => {
+  await context.test('некорректный student_id', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/guest/students/nope/avatar' })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Некорректные параметры запроса.',
+    })
+  })
+
+  await context.test('completed-профиль', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/guest/students/3/avatar' })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Профиль недоступен.' })
+  })
+
+  await context.test('ссылка на отсутствующий файл', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/guest/students/2/avatar' })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Файл аватара не найден.' })
+  })
+})
+
+test('GET /guest/students/:id/avatar поддерживает nginx без /api', async () => {
+  const response = await app.inject({ method: 'GET', url: '/guest/students/1/avatar' })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.body, 'avatar-content')
 })

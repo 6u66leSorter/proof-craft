@@ -1,16 +1,6 @@
-import { Controller, Get, HttpException, HttpStatus, Inject, Param } from '@nestjs/common'
+import { Controller, Get, Inject, Param } from '@nestjs/common'
 import { GetStudentPortfolioUseCase } from './get-student-portfolio.use-case.js'
-
-const parseStudentId = (value: string): number => {
-  const studentId = Number(value)
-  if (!Number.isSafeInteger(studentId) || studentId <= 0) {
-    throw new HttpException(
-      { ok: false, error: 'Некорректные параметры запроса.' },
-      HttpStatus.BAD_REQUEST,
-    )
-  }
-  return studentId
-}
+import { parseStudentId } from './parse-student-id.js'
 
 @Controller(['api/guest/students', 'guest/students'])
 export class StudentPortfolioController {
