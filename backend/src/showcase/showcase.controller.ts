@@ -1,8 +1,6 @@
 import {
   Controller,
   Get,
-  HttpException,
-  HttpStatus,
   Inject,
   Param,
   Query,
@@ -12,28 +10,19 @@ import {
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { AuthenticationGuard } from '../auth/authentication.guard.js'
+import { invalidParameters } from '../common/invalid-parameters.error.js'
+import { parseBoundedIntegerQuery } from '../common/parse-bounded-integer-query.js'
 import { parsePositiveId } from '../common/parse-positive-id.js'
 import { GetShowcaseHomeworkFileUseCase } from './get-showcase-homework-file.use-case.js'
 import { ListShowcaseHomeworksUseCase } from './list-showcase-homeworks.use-case.js'
 
-const invalidQuery = (): never => {
-  throw new HttpException(
-    { ok: false, error: 'Некорректные параметры запроса.' },
-    HttpStatus.BAD_REQUEST,
-  )
-}
-
 const parseLimit = (value: unknown): number => {
-  if (value == null) return 3
-  if (typeof value !== 'string') return invalidQuery()
-  const limit = Number(value)
-  if (!Number.isInteger(limit) || limit < 1 || limit > 12) return invalidQuery()
-  return limit
+  return parseBoundedIntegerQuery(value, { defaultValue: 3, min: 1, max: 12 })
 }
 
 const parseExcludedIds = (value: unknown): Set<number> => {
   if (value == null) return new Set()
-  if (typeof value !== 'string') return invalidQuery()
+  if (typeof value !== 'string') return invalidParameters()
   return new Set(
     value
       .split(',')

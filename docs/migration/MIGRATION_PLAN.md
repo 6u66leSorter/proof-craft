@@ -51,7 +51,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `GET /api/guest/students/:student_id/avatar` реализован в NestJS с безопасным разрешением пути и потоковой отдачей.
 - `GET /api/guest/homeworks/:id/file` и `GET /api/guest/homeworks/:homeworkId/attachments/:attachmentId/file` реализованы в NestJS: только `approved`, с проверкой принадлежности вложения, local/Telegram streaming и photo preview.
 - `GET /api/showcase/homeworks` и `GET /api/showcase/homeworks/:id/file` реализованы в NestJS с общей credential-проверкой, Prisma repository, дедупликацией, `exclude_ids`/`cycled` и общим storage adapter.
-- Следующий небольшой срез — чтение уведомлений `GET /api/notifications` с общей identity-границей.
+- `GET /api/notifications` реализован в NestJS с общей identity-границей, изоляцией user ID, JSON payload, unread-счётчиком и retention-сервисом.
+- Следующий маршрут — `POST /api/notifications/read`: точечное и массовое отмечание только своих уведомлений.
 
 ### 5. Вывод legacy и миграция СУБД
 

@@ -8,7 +8,7 @@
 
 - Клиент: vanilla JavaScript, CSS, Vite 7 (`src/`); один билд выбирает Telegram/VK по launch-параметрам.
 - Сервер: Node.js (ES modules), Fastify 5, Zod, `@fastify/cors`, `@fastify/multipart`.
-- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); `/health`, `/api/session`, публичное портфолио и авторизованная витрина работ готовы к точечному переключению, production продолжает обслуживать legacy API.
+- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); `/health`, `/api/session`, публичное портфолио, авторизованная витрина работ и чтение уведомлений готовы к точечному переключению, production продолжает обслуживать legacy API.
 - Бот: `node-telegram-bot-api`.
 - Данные: SQLite через `better-sqlite3`; изображения обрабатывает `sharp`.
 - Прод: PM2 и nginx (маршрутизация `/api` поддерживает сценарий, где nginx срезает префикс).
@@ -47,6 +47,7 @@
 - Файлы ДЗ и вложения API хранит в `data/uploads`; размер одного загружаемого файла ограничивается настройкой, по умолчанию 450 МБ.
 - В новом backend публичные файлы и вложения доступны только для `approved`-работ учеников `studying`; storage adapter безопасно открывает локальные файлы, проксирует Telegram file ID и генерирует JPEG-preview фото.
 - Авторизованная витрина `showcase` выбирает случайные `approved` фото/видео с существующим локальным или Telegram-файлом, исключает повторы по паре «ученик + файл» и циклически дополняет выборку после `exclude_ids`.
+- `GET /api/notifications` в новом backend берёт identity из проверенного credential, возвращает только записи этого user ID, парсит JSON payload и считает все непрочитанные записи независимо от лимита; retention-cleanup изолирован в application service.
 - Аватар ученика хранится файлом в `data/uploads` (`students.avatar_file_id`) и отдаётся тремя путями: `/api/student/me/avatar` — самому ученику, `/api/students/:id/avatar` — ему же, его преподавателям и администратору, `/api/guest/students/:id/avatar` — публично, но только для профилей со статусом `studying`, которые уже показаны в гостевой витрине. Признак `has_avatar` возвращают ответы для ученика, преподавателя, администратора и гостя; если он `false`, интерфейс оставляет прежнюю заглушку.
 - У одного ДЗ может быть неограниченная лента комментариев преподавателя и ученика; комментарии не заменяют оценку и доступны только ученику-владельцу, его закреплённым преподавателям и администратору.
 - Telegram- и VK-пользователи сопоставляются с внутренними пользователями; для VK предусмотрено связывание аккаунта через одноразовый токен.
@@ -82,6 +83,7 @@ npm run build
 - `BOT_TOKEN` (также поддерживаются `TELEGRAM_BOT_TOKEN`, `VITE_TELEGRAM_BOT_TOKEN`), `WEB_APP_URL`, `TELEGRAM_BOT_USERNAME` (без `@`, нужен для входа с сайта через Telegram);
 - `API_PORT` или `PORT`, `VITE_API_BASE_URL`, `API_PREFIX_STRIP_REWRITE`;
 - `TG_WEBAPP_AUTH` (`off`, `optional`, `strict`), `MAX_HOMEWORK_UPLOAD_MB`, `CHAT_ENABLED`;
+- `APP_NOTIFICATIONS_RETENTION_DAYS` (от 7 до 365, по умолчанию 90);
 - `VK_APP_ID`, `VITE_VK_APP_ID`, `VK_ID_OFFSET`, `VK_APP_SECRET`.
 - Для параллельного NestJS: `NEST_API_HOST` (по умолчанию `127.0.0.1`) и `NEST_API_PORT` (по умолчанию `8788`).
 - NestJS требует `DATABASE_URL=file:/absolute/path/to/barber.db`, поскольку `SessionModule` читает существующую SQLite. На baseline-этапе разрешён только SQLite; сам обработчик `/health` запросов к БД не выполняет.
@@ -94,7 +96,7 @@ npm run build
 
 - `npm test` запускает characterization-тесты legacy API и e2e-тесты NestJS. Legacy-тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
 - Проверка NestJS отдельно: `npm run test:backend`, `npm --prefix backend run typecheck`, `npm run backend:build`.
-- Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичное портфолио и showcase, включая approved-only доступ, принадлежность вложения, preview, файловые заголовки и cache headers.
+- Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичное портфолио, showcase и уведомления, включая approved-only доступ, файлы, preview, credential-проверку и retention.
 - `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
 - `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.
 - Перед изменениями API проверять затронутые сценарии ATAC; для клиентских изменений вручную проходить сценарий соответствующей роли в Telegram и VK.

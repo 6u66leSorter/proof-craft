@@ -125,8 +125,38 @@ const seedLegacyDatabase = (databasePath) => {
   insertReview.run(approvedHomeworkId, teacherId, 4)
   insertReview.run(approvedHomeworkId, teacherId, 5)
   db.prepare(`
-    INSERT INTO app_notifications (user_id, kind, body)
-    VALUES (?, 'contract', 'Непрочитанное')
+    INSERT INTO app_notifications (user_id, kind, body, payload, read_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    studentOneUserId,
+    'contract_unread',
+    'Непрочитанное',
+    JSON.stringify({ homework_id: approvedHomeworkId, student_id: studentOneId }),
+    null,
+    '2026-09-22 12:00:00',
+  )
+  db.prepare(`
+    INSERT INTO app_notifications (user_id, kind, body, payload, read_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    studentOneUserId,
+    'contract_read',
+    'Прочитанное',
+    JSON.stringify({ homework_id: approvedDocumentHomeworkId }),
+    '2026-09-22 13:00:00',
+    '2026-09-21 12:00:00',
+  )
+  db.prepare(`
+    INSERT INTO app_notifications (user_id, kind, body, payload, read_at, created_at)
+    VALUES (?, 'contract_invalid', 'Невалидный payload', '{broken', '2026-09-20 13:00:00', '2026-09-20 12:00:00')
+  `).run(studentOneUserId)
+  db.prepare(`
+    INSERT INTO app_notifications (user_id, kind, body, created_at)
+    VALUES (?, 'other_user', 'Чужое уведомление', '2026-09-23 12:00:00')
+  `).run(studentTwoUserId)
+  db.prepare(`
+    INSERT INTO app_notifications (user_id, kind, body, read_at, created_at)
+    VALUES (?, 'expired', 'Устаревшее', '2020-01-01 13:00:00', '2020-01-01 12:00:00')
   `).run(studentOneUserId)
   db.prepare(`
     INSERT INTO web_sessions (user_id, token_hash, expires_at)
@@ -318,6 +348,93 @@ test('strict Telegram auth отклоняет несовпадающий telegra
   const { response, body } = await getJson('/api/session?telegram_id=3001', 3002)
   assert.equal(response.status, 403)
   assert.equal(body.ok, false)
+})
+
+test('GET /api/notifications возвращает свои уведомления от новых к старым', async () => {
+  const { response, body } = await getJson(
+    '/api/notifications?telegram_id=3001&limit=3',
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.data.unread_count, 1)
+  assert.deepEqual(
+    body.data.notifications.map(({ id, ...notification }) => {
+      assert.ok(Number.isInteger(id) && id > 0)
+      return notification
+    }),
+    [
+      {
+        kind: 'contract_unread',
+        body: 'Непрочитанное',
+        payload: {
+          homework_id: fixtureIds.approvedHomeworkId,
+          student_id: fixtureIds.studentOneId,
+        },
+        read_at: null,
+        created_at: '2026-09-22 12:00:00',
+      },
+      {
+        kind: 'contract_read',
+        body: 'Прочитанное',
+        payload: { homework_id: fixtureIds.approvedDocumentHomeworkId },
+        read_at: '2026-09-22 13:00:00',
+        created_at: '2026-09-21 12:00:00',
+      },
+      {
+        kind: 'contract_invalid',
+        body: 'Невалидный payload',
+        payload: null,
+        read_at: '2026-09-20 13:00:00',
+        created_at: '2026-09-20 12:00:00',
+      },
+    ],
+  )
+})
+
+test('notifications limit не меняет общий unread_count', async () => {
+  const { response, body } = await getJson(
+    '/api/notifications?telegram_id=3001&limit=1',
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.data.notifications.length, 1)
+  assert.equal(body.data.unread_count, 1)
+})
+
+test('notifications принимает web-session и не смешивает пользователей', async () => {
+  const response = await fetch(`${baseUrl}/api/notifications?telegram_id=3001&limit=10`, {
+    headers: { 'X-Web-Session': testWebSessionToken },
+  })
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.data.notifications.length, 3)
+  assert.ok(body.data.notifications.every((notification) => notification.kind !== 'other_user'))
+})
+
+test('notifications сохраняет auth, query и unknown-user ошибки', async (context) => {
+  await context.test('нет credential', async () => {
+    const { response } = await getJson('/api/notifications?telegram_id=3001')
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('некорректный limit', async () => {
+    const { response, body } = await getJson(
+      '/api/notifications?telegram_id=3001&limit=81',
+      3001,
+    )
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('подписанный неизвестный пользователь', async () => {
+    const { response, body } = await getJson(
+      '/api/notifications?telegram_id=9999',
+      9999,
+    )
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Пользователь не найден.' })
+  })
 })
 
 test('GET /api/showcase/homeworks возвращает только approved фото и видео', async () => {

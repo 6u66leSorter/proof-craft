@@ -16,6 +16,14 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-23 — Перенос чтения уведомлений
+
+- **Цель:** перенести `GET /api/notifications`, сохранив контракт фронта и изоляцию данных пользователей.
+- **Сделано:** добавлен `NotificationsModule` с controller, use case, Prisma repository и отдельным retention-сервисом. Identity берётся из auth principal; ответ сохраняет `payload`, `read_at`, `created_at`, сортировку, лимит `1..80` и общий `unread_count`. Общие query-парсеры вынесены из feature-модулей.
+- **Проверка:** legacy — 28 успешных тестов и 4 целевых TODO; NestJS — 63 успешных теста. Проверены payload JSON/невалидный JSON, unread-счётчик, лимит, Telegram/web-session, nginx-путь, неизвестный user, изоляция и retention.
+- **Вывод:** `GET /api/notifications` имеет статус `nest-ready`; production routing, схема БД и Prisma migrations не менялись.
+- **Следующий шаг:** перенести `POST /api/notifications/read` с проверкой владельца и общим auth principal.
+
 ### 2026-09-23 — Перенос авторизованной витрины
 
 - **Цель:** перенести случайную showcase-выборку approved-работ и её файловую ручку.

@@ -1,12 +1,7 @@
-import { HttpException, HttpStatus } from '@nestjs/common'
+import { invalidParameters } from './invalid-parameters.error.js'
 
 export const parsePositiveId = (value: string): number => {
   const id = Number(value)
-  if (!Number.isSafeInteger(id) || id <= 0) {
-    throw new HttpException(
-      { ok: false, error: 'Некорректные параметры запроса.' },
-      HttpStatus.BAD_REQUEST,
-    )
-  }
+  if (!Number.isSafeInteger(id) || id <= 0) return invalidParameters()
   return id
 }

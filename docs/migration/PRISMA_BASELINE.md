@@ -28,6 +28,7 @@ controller/use case -> StudentPortfolioRepository -> PrismaStudentPortfolioRepos
 controller/use case -> StudentAvatarRepository -> PrismaStudentAvatarRepository -> PrismaService
 controller/use case -> PublicHomeworkFileRepository -> PrismaPublicHomeworkFileRepository -> PrismaService
 controller/use case -> ShowcaseRepository -> PrismaShowcaseRepository -> PrismaService
+controller/use case -> NotificationsRepository -> PrismaNotificationsRepository -> PrismaService
 ```
 
 `AppModule` подключает persistence через `SessionModule`, поэтому для запуска процесса теперь обязателен `DATABASE_URL`. Сам обработчик `/health` запросов к БД не выполняет; его изолированный e2e-тест не зависит от SQLite.
