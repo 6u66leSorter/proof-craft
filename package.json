@@ -12,6 +12,8 @@
     "preview": "vite preview",
     "bot": "node bot/registrationBot.js",
     "api": "node bot/apiServer.js",
+    "test": "node --test testing/contract/*.test.js",
+    "test:legacy": "node --test testing/contract/legacy-api.test.js",
     "setup:admin": "node bot/setupUser.js admin",
     "setup:teacher": "node bot/setupUser.js teacher",
     "db": "node bot/dbCli.js",

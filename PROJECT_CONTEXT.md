@@ -55,6 +55,7 @@ npm install
 npm run dev       # фронтенд Vite
 npm run api       # API на порту из API_PORT или PORT (по умолчанию 8787)
 npm run bot       # Telegram-бот
+npm test          # characterization-тесты legacy API в изолированной временной копии
 npm run lint
 npm run build
 ```
@@ -82,8 +83,9 @@ npm run build
 
 ## Тестирование
 
-- В `package.json` нет автоматических unit/e2e-тестов; доступны `npm run lint` и сборка Vite.
+- `npm test` запускает characterization-тесты legacy API через встроенный `node:test`. Тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
 - `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
+- `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.
 - Перед изменениями API проверять затронутые сценарии ATAC; для клиентских изменений вручную проходить сценарий соответствующей роли в Telegram и VK.
 
 ## Текущее техническое состояние
