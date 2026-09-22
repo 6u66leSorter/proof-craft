@@ -8,7 +8,7 @@
 
 - Клиент: vanilla JavaScript, CSS, Vite 7 (`src/`); один билд выбирает Telegram/VK по launch-параметрам.
 - Сервер: Node.js (ES modules), Fastify 5, Zod, `@fastify/cors`, `@fastify/multipart`.
-- Новый backend в процессе миграции: NestJS 12 с Fastify adapter и TypeScript (`backend/`); пока реализован только совместимый `/health`, production продолжает обслуживать legacy API.
+- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); пока реализован только совместимый `/health`, production продолжает обслуживать legacy API.
 - Бот: `node-telegram-bot-api`.
 - Данные: SQLite через `better-sqlite3`; изображения обрабатывает `sharp`.
 - Прод: PM2 и nginx (маршрутизация `/api` поддерживает сценарий, где nginx срезает префикс).
@@ -20,7 +20,7 @@
 | --- | --- |
 | `src/` | Основной фронтенд: `main.js` загружает Telegram SDK и запускает `newFrontApp.js`; `index.css` — стили. |
 | `bot/` | API (`apiServer.js`), Telegram-бот (`registrationBot.js`), SQLite-схема/миграции (`database.js`) и сервисы запросов (`dbService.js`). |
-| `backend/` | Новый NestJS backend, который запускается рядом с legacy API и принимает только явно перенесённые маршруты. |
+| `backend/` | Новый NestJS backend, Prisma schema и repository boundary; запускается рядом с legacy API и принимает только явно перенесённые маршруты. |
 | `docs/migration/` | Реестр API, решения по legacy-поведению и этапный план миграции. |
 | `docs/db/schema.dbml` | Актуализируемая ER-диаграмма основных таблиц. |
 | `testing/atac/` | Импортируемая коллекция ATAC/Postman и smoke-сценарии API. |
@@ -82,6 +82,7 @@ npm run build
 - `TG_WEBAPP_AUTH` (`off`, `optional`, `strict`), `MAX_HOMEWORK_UPLOAD_MB`, `CHAT_ENABLED`;
 - `VK_APP_ID`, `VITE_VK_APP_ID`, `VK_ID_OFFSET`, `VK_APP_SECRET`.
 - Для параллельного NestJS: `NEST_API_HOST` (по умолчанию `127.0.0.1`) и `NEST_API_PORT` (по умолчанию `8788`).
+- Модули NestJS с БД требуют `DATABASE_URL=file:/absolute/path/to/barber.db`. На baseline-этапе разрешён только SQLite; `/health` не подключает БД.
 
 **Как переменные попадают в API.** `bot/apiServer.js` не импортирует dotenv, в отличие от `bot/registrationBot.js`. Процесс API получает только то, что перечислено в блоке `env:` для `barber-api` в `ecosystem.config.cjs`. Переменная, добавленная в `.env`, но не указанная там, до API не доходит, и работает умолчание из кода. При добавлении новой переменной для API её нужно прописать в обоих местах.
 
@@ -91,6 +92,7 @@ npm run build
 
 - `npm test` запускает characterization-тесты legacy API и e2e-тесты NestJS. Legacy-тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
 - Проверка NestJS отдельно: `npm run test:backend`, `npm --prefix backend run typecheck`, `npm run backend:build`.
+- Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository.
 - `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
 - `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.
 - Перед изменениями API проверять затронутые сценарии ATAC; для клиентских изменений вручную проходить сценарий соответствующей роли в Telegram и VK.

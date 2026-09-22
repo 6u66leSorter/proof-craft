@@ -20,22 +20,21 @@ client -> nginx/router -> legacy Fastify :8787
 - Изолированная временная SQLite-БД.
 - Characterization-тесты legacy API.
 
-### 1. Параллельный NestJS-каркас — выполняется
+### 1. Параллельный NestJS-каркас — завершён
 
 - NestJS с Fastify adapter в `backend/`.
 - Независимые package, build, typecheck и test.
 - Совместимый `GET /health`.
-- Следующее: проверить одновременный локальный запуск и подготовить точное переключение `/health`.
+- Совместимый `/health` покрыт e2e-тестом; production routing не менялся.
 
-### 2. Prisma baseline — следующий инфраструктурный этап
+### 2. Prisma baseline — завершён
 
-- Интроспекция копии текущей SQLite.
-- Ручная проверка связей, nullable-полей и каскадов.
-- `@map`/`@@map` без переименования production-структуры.
-- Запрет `db push` для production.
-- Repository boundary: controller не обращается к Prisma напрямую.
+- Интроспектирована временная копия текущей SQLite: 19 моделей.
+- Физические имена сохранены без переименования; drift проверяет e2e-тест.
+- `db push` и Prisma migrations запрещены до отдельного решения.
+- Создан repository boundary; controller не обращается к Prisma напрямую.
 
-### 3. Identity и авторизация
+### 3. Identity и авторизация — следующий этап
 
 - Telegram, VK и web-session credentials.
 - `CurrentUser` и guards.

@@ -16,6 +16,14 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-22 — Prisma baseline существующей SQLite
+
+- **Цель:** подключить новый NestJS backend к текущей модели данных без изменения рабочей или production-БД.
+- **Сделано:** Prisma 7.10 интроспектировала временную SQLite, созданную legacy-миграциями; зафиксированы 19 моделей, PrismaService с SQLite adapter, PersistenceModule и первый `UserIdentityRepository`. Добавлен drift/e2e-тест, документация ограничений и команды generate/validate.
+- **Проверка:** `prisma validate`, backend typecheck/build, два backend-теста, десять активных legacy-тестов, frontend lint/build прошли. Тест сверяет все 19 таблиц и читает роли пользователя через repository.
+- **Вывод:** Prisma migrations отсутствуют, production routing и БД не менялись. Audit показывает четыре high advisory в дереве dev Prisma CLI; MySQL не используется, автоматическое обновление на Prisma 8 RC или downgrade не выполнялись.
+- **Следующий шаг:** реализовать Identity/Auth foundation и перенести `/api/session`, сохранив контракт для сравнения фронтенда.
+
 ### 2026-09-22 — Параллельный NestJS-каркас
 
 - **Цель:** подготовить второй backend-процесс без вмешательства в действующий Fastify API и базу.

@@ -1,0 +1,294 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model app_notifications {
+  id         Int     @id @default(autoincrement())
+  user_id    Int
+  kind       String
+  body       String
+  payload    String?
+  read_at    String?
+  created_at String  @default("datetime('now')")
+  users      users   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, read_at], map: "idx_app_notifications_unread")
+  @@index([user_id], map: "idx_app_notifications_user")
+}
+
+model audit_log {
+  id            Int     @id @default(autoincrement())
+  actor_user_id Int
+  action        String
+  meta          String?
+  created_at    String  @default("datetime('now')")
+  users         users   @relation(fields: [actor_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_audit_log_created")
+}
+
+model chat_messages {
+  id             Int      @id @default(autoincrement())
+  student_id     Int
+  sender_user_id Int
+  text_content   String?
+  content_type   String
+  file_id        String?
+  created_at     String   @default("datetime('now')")
+  users          users    @relation(fields: [sender_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  students       students @relation(fields: [student_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([sender_user_id], map: "idx_chat_messages_sender")
+  @@index([student_id, id], map: "idx_chat_messages_student_id")
+}
+
+model feedback_invites {
+  id              Int      @id @default(autoincrement())
+  student_id      Int
+  milestone       Int
+  delivery_status String   @default("pending")
+  created_at      String   @default("datetime('now')")
+  students        students @relation(fields: [student_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([student_id, milestone], map: "sqlite_autoindex_feedback_invites_1")
+}
+
+model homework_comments {
+  id             Int       @id @default(autoincrement())
+  homework_id    Int
+  author_user_id Int
+  text_content   String
+  created_at     String    @default("datetime('now')")
+  users          users     @relation(fields: [author_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  homeworks      homeworks @relation(fields: [homework_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([homework_id, id], map: "idx_homework_comments_homework")
+}
+
+model homework_files {
+  id           Int       @id @default(autoincrement())
+  homework_id  Int
+  file_id      String
+  content_type String
+  sort_order   Int       @default(0)
+  created_at   String    @default("datetime('now')")
+  homeworks    homeworks @relation(fields: [homework_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([homework_id], map: "idx_homework_files_homework")
+}
+
+model homework_reviews {
+  id          Int       @id @default(autoincrement())
+  homework_id Int
+  teacher_id  Int
+  rating      Int?
+  comment     String?
+  status      String
+  created_at  String    @default("datetime('now')")
+  updated_at  String    @default("datetime('now')")
+  teachers    teachers  @relation(fields: [teacher_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  homeworks   homeworks @relation(fields: [homework_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([teacher_id], map: "idx_homework_reviews_teacher")
+  @@index([homework_id], map: "idx_homework_reviews_homework")
+}
+
+model homeworks {
+  id                       Int                 @id @default(autoincrement())
+  student_id               Int
+  lesson_number            Int?
+  is_bonus                 Int                 @default(0)
+  content_type             String
+  file_id                  String?
+  text_content             String?
+  status                   String              @default("pending")
+  created_at               String              @default("datetime('now')")
+  updated_at               String              @default("datetime('now')")
+  haircut_name             String?
+  revision_student_text    String?
+  revision_student_file_id String?
+  homework_comments        homework_comments[]
+  homework_files           homework_files[]
+  homework_reviews         homework_reviews[]
+  students                 students            @relation(fields: [student_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status], map: "idx_homeworks_status")
+  @@index([student_id], map: "idx_homeworks_student")
+}
+
+model private_feedback {
+  id          Int      @id @default(autoincrement())
+  student_id  Int
+  request_key String
+  subject     String
+  message     String
+  created_at  String   @default("datetime('now')")
+  students    students @relation(fields: [student_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([student_id, request_key], map: "sqlite_autoindex_private_feedback_1")
+}
+
+model student_profile_edits {
+  id                      Int      @id @default(autoincrement())
+  student_id              Int
+  new_full_name           String
+  new_phone               String
+  new_metro               String?
+  status                  String   @default("pending")
+  admin_comment           String?
+  created_at              String   @default("datetime('now')")
+  reviewed_at             String?
+  reviewed_by_telegram_id Int?
+  students                students @relation(fields: [student_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status], map: "idx_profile_edits_status")
+  @@index([student_id], map: "idx_profile_edits_student")
+}
+
+model student_teachers {
+  id         Int      @id @default(autoincrement())
+  student_id Int
+  teacher_id Int
+  created_at String   @default("datetime('now')")
+  teachers   teachers @relation(fields: [teacher_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  students   students @relation(fields: [student_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([student_id, teacher_id], map: "sqlite_autoindex_student_teachers_1")
+  @@index([teacher_id], map: "idx_student_teachers_teacher")
+  @@index([student_id], map: "idx_student_teachers_student")
+}
+
+model students {
+  id                    Int                     @id @default(autoincrement())
+  user_id               Int                     @unique(map: "sqlite_autoindex_students_1")
+  full_name             String
+  phone                 String
+  lessons_count         Int
+  status                String                  @default("moderation")
+  created_at            String                  @default("datetime('now')")
+  updated_at            String                  @default("datetime('now')")
+  student_track         String                  @default("student")
+  metro                 String?
+  avatar_file_id        String?
+  about_me              String?
+  chat_messages         chat_messages[]
+  feedback_invites      feedback_invites[]
+  homeworks             homeworks[]
+  private_feedback      private_feedback[]
+  student_profile_edits student_profile_edits[]
+  student_teachers      student_teachers[]
+  users                 users                   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status], map: "idx_students_status")
+  @@index([user_id], map: "idx_students_user_id")
+}
+
+model teacher_applications {
+  id                Int    @id @default(autoincrement())
+  applicant_user_id Int
+  full_name         String
+  phone             String
+  status            String @default("pending")
+  created_at        String @default("datetime('now')")
+  updated_at        String @default("datetime('now')")
+  users             users  @relation(fields: [applicant_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([applicant_user_id], map: "idx_teacher_apps_user")
+  @@index([status], map: "idx_teacher_apps_status")
+}
+
+model teachers {
+  id               Int                @id @default(autoincrement())
+  user_id          Int                @unique(map: "sqlite_autoindex_teachers_1")
+  full_name        String
+  created_at       String             @default("datetime('now')")
+  updated_at       String             @default("datetime('now')")
+  about_me         String?
+  homework_reviews homework_reviews[]
+  student_teachers student_teachers[]
+  users            users              @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_teachers_user_id")
+}
+
+model user_roles {
+  id         Int    @id @default(autoincrement())
+  user_id    Int
+  role       String
+  created_at String @default("datetime('now')")
+  users      users  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, role], map: "sqlite_autoindex_user_roles_1")
+  @@index([role], map: "idx_user_roles_role")
+  @@index([user_id], map: "idx_user_roles_user_id")
+}
+
+model users {
+  id                   Int                    @id @default(autoincrement())
+  telegram_id          Int                    @unique(map: "sqlite_autoindex_users_1")
+  username             String?
+  first_name           String?
+  last_name            String?
+  role                 String                 @default("guest")
+  created_at           String                 @default("datetime('now')")
+  updated_at           String                 @default("datetime('now')")
+  vk_user_id           Int?                   @unique(map: "idx_users_vk_user_id_unique", where: raw("INDEX idx_users_vk_user_id_unique ON users(vk_user_id)\n        WHERE vk_user_id IS NOT NULL"))
+  app_notifications    app_notifications[]
+  audit_log            audit_log[]
+  chat_messages        chat_messages[]
+  homework_comments    homework_comments[]
+  students             students?
+  teacher_applications teacher_applications[]
+  teachers             teachers?
+  user_roles           user_roles[]
+  vk_link_tokens       vk_link_tokens[]
+  web_login_requests   web_login_requests[]
+  web_sessions         web_sessions[]
+
+  @@index([telegram_id], map: "idx_users_telegram_id")
+}
+
+model vk_link_tokens {
+  id         Int    @id @default(autoincrement())
+  user_id    Int
+  token_hash String @unique(map: "sqlite_autoindex_vk_link_tokens_1")
+  expires_at String
+  created_at String @default("datetime('now')")
+  users      users  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expires_at], map: "idx_vk_link_tokens_expires")
+  @@index([user_id], map: "idx_vk_link_tokens_user")
+}
+
+model web_login_requests {
+  id          Int     @id @default(autoincrement())
+  provider    String
+  token_hash  String  @unique(map: "sqlite_autoindex_web_login_requests_1")
+  user_id     Int?
+  expires_at  String
+  approved_at String?
+  created_at  String  @default("datetime('now')")
+  users       users?  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expires_at], map: "idx_web_login_requests_expires")
+  @@index([token_hash], map: "idx_web_login_requests_token")
+}
+
+model web_sessions {
+  id           Int    @id @default(autoincrement())
+  user_id      Int
+  token_hash   String @unique(map: "sqlite_autoindex_web_sessions_1")
+  expires_at   String
+  last_seen_at String @default("datetime('now')")
+  created_at   String @default("datetime('now')")
+  users        users  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expires_at], map: "idx_web_sessions_expires")
+  @@index([token_hash], map: "idx_web_sessions_token")
+}

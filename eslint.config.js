@@ -3,7 +3,7 @@ import globals from 'globals'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'mini-app']),
+  globalIgnores(['dist', '**/dist/**', '**/node_modules/**', 'mini-app']),
   {
     files: ['**/*.{js}'],
     extends: [js.configs.recommended],

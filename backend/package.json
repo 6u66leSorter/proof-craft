@@ -5,21 +5,28 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "postinstall": "npm run prisma:generate",
+    "prisma:generate": "prisma generate --config prisma7.config.ts",
+    "prisma:validate": "prisma validate --config prisma7.config.ts",
     "start": "node dist/main.js",
     "start:dev": "tsx watch src/main.ts",
-    "test": "tsx --test test/health.e2e.test.ts",
+    "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@nestjs/common": "12.0.4",
     "@nestjs/core": "12.0.4",
     "@nestjs/platform-fastify": "12.0.4",
+    "@prisma/adapter-better-sqlite3": "7.10.0",
+    "@prisma/client": "7.10.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2"
   },
   "devDependencies": {
     "@nestjs/testing": "12.0.4",
+    "@types/better-sqlite3": "9.6.0",
     "@types/node": "20.19.25",
+    "prisma": "7.10.0",
     "tsx": "4.23.15",
     "typescript": "5.9.3"
   }
