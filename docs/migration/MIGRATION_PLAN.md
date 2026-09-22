@@ -46,7 +46,8 @@ client -> nginx/router -> legacy Fastify :8787
 Порядок: session → публичные GET → уведомления/профили → административные GET → регистрации и модерация → назначения → чаты → домашние задания и файлы → проверки → web-auth/VK → Telegram-бот.
 
 - `GET /api/session` реализован в NestJS и имеет статус `nest-ready`; production routing ещё обслуживает legacy.
-- Следующая группа — публичные GET без авторизации, начиная со списка учеников витрины.
+- `GET /api/guest/portfolio-students` реализован в NestJS; его `works_count` считает только публичные `approved` работы и не повторяет `SEC-001`.
+- Следующий маршрут — `GET /api/guest/students/:student_id/portfolio`; в нём нужно исключить pending/revision работы и их вложения.
 
 ### 5. Вывод legacy и миграция СУБД
 

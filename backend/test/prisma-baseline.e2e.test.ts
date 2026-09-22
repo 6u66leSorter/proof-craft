@@ -1,18 +1,16 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
-import os from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { readFile, rm } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { PersistenceModule } from '../src/persistence/persistence.module.js'
 import { UserIdentityRepository } from '../src/persistence/users/user-identity.repository.js'
+import { createLegacyDatabase } from './support/legacy-database.js'
 
 const testDir = dirname(fileURLToPath(import.meta.url))
 const backendRoot = resolve(testDir, '..')
-const projectRoot = resolve(backendRoot, '..')
 
 const expectedTables = [
   'app_notifications',
@@ -36,29 +34,8 @@ const expectedTables = [
   'web_sessions',
 ].sort()
 
-const createLegacyDatabase = async (): Promise<{ databasePath: string; temporaryRoot: string }> => {
-  const temporaryRoot = await mkdtemp(join(os.tmpdir(), 'proof-craft-prisma-'))
-  const isolatedProject = join(temporaryRoot, 'project')
-  await mkdir(isolatedProject, { recursive: true })
-  await cp(join(projectRoot, 'bot'), join(isolatedProject, 'bot'), { recursive: true })
-  await cp(join(projectRoot, 'package.json'), join(isolatedProject, 'package.json'))
-  await symlink(join(projectRoot, 'node_modules'), join(isolatedProject, 'node_modules'), 'dir')
-
-  const child = spawn(process.execPath, ['-e', "import('./bot/database.js')"], {
-    cwd: isolatedProject,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  let output = ''
-  child.stdout.on('data', (chunk) => { output += String(chunk) })
-  child.stderr.on('data', (chunk) => { output += String(chunk) })
-  const exitCode = await new Promise<number | null>((resolveExit) => child.once('exit', resolveExit))
-  if (exitCode !== 0) throw new Error(`Не удалось создать legacy SQLite.\n${output}`)
-
-  return { databasePath: join(isolatedProject, 'data', 'barber.db'), temporaryRoot }
-}
-
 test('Prisma baseline соответствует 19 legacy-таблицам и repository читает identity', async () => {
-  const fixture = await createLegacyDatabase()
+  const fixture = await createLegacyDatabase('proof-craft-prisma-')
   const previousDatabaseUrl = process.env.DATABASE_URL
 
   try {

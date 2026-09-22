@@ -1,19 +1,13 @@
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import { spawn } from 'node:child_process'
-import { cp, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
-import os from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { rm } from 'node:fs/promises'
 import test, { after, before } from 'node:test'
 import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
+import { createLegacyDatabase } from './support/legacy-database.js'
 
-const testDir = dirname(fileURLToPath(import.meta.url))
-const backendRoot = resolve(testDir, '..')
-const projectRoot = resolve(backendRoot, '..')
 const botToken = '123456:nest-session-contract-token'
 const vkSecret = 'nest-session-vk-secret'
 const webSessionToken = 'nest-session-web-token'
@@ -23,29 +17,6 @@ const vkClaimedTelegramId = 10_000_000_000 + vkUserId
 
 let temporaryRoot: string
 let app: NestFastifyApplication
-
-const createLegacyDatabase = async (): Promise<string> => {
-  temporaryRoot = await mkdtemp(join(os.tmpdir(), 'proof-craft-session-'))
-  const isolatedProject = join(temporaryRoot, 'project')
-  await mkdir(isolatedProject, { recursive: true })
-  await cp(join(projectRoot, 'bot'), join(isolatedProject, 'bot'), {
-    recursive: true,
-    filter: (source) => basename(source) !== 'node_modules',
-  })
-  await cp(join(projectRoot, 'package.json'), join(isolatedProject, 'package.json'))
-  await symlink(join(projectRoot, 'node_modules'), join(isolatedProject, 'node_modules'), 'dir')
-
-  const child = spawn(process.execPath, ['-e', "import('./bot/database.js')"], {
-    cwd: isolatedProject,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  let output = ''
-  child.stdout.on('data', (chunk) => { output += String(chunk) })
-  child.stderr.on('data', (chunk) => { output += String(chunk) })
-  const exitCode = await new Promise<number | null>((resolveExit) => child.once('exit', resolveExit))
-  if (exitCode !== 0) throw new Error(`Не удалось создать тестовую legacy SQLite.\n${output}`)
-  return join(isolatedProject, 'data', 'barber.db')
-}
 
 const seedSessionFixture = (databasePath: string): void => {
   const db = new Database(databasePath)
@@ -176,9 +147,10 @@ const expectedStudentSession = {
 }
 
 before(async () => {
-  const databasePath = await createLegacyDatabase()
-  seedSessionFixture(databasePath)
-  process.env.DATABASE_URL = `file:${databasePath}`
+  const fixture = await createLegacyDatabase('proof-craft-session-')
+  temporaryRoot = fixture.temporaryRoot
+  seedSessionFixture(fixture.databasePath)
+  process.env.DATABASE_URL = `file:${fixture.databasePath}`
   process.env.BOT_TOKEN = botToken
   process.env.TELEGRAM_BOT_TOKEN = ''
   process.env.VITE_TELEGRAM_BOT_TOKEN = ''

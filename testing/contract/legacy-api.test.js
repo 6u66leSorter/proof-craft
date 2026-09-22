@@ -316,6 +316,44 @@ test('strict Telegram auth отклоняет несовпадающий telegra
   assert.equal(body.ok, false)
 })
 
+test('GET /api/guest/portfolio-students фиксирует публичный whitelist и сортировку', async () => {
+  const { response, body } = await getJson('/api/guest/portfolio-students')
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      students: [
+        {
+          id: fixtureIds.studentOneId,
+          full_name: 'Анна Ученица',
+          lessons_count: 10,
+          student_track: 'intern',
+          metro: 'Центральная',
+          average_rating: 4.5,
+          works_count: 3,
+          has_avatar: true,
+        },
+        {
+          id: fixtureIds.studentTwoId,
+          full_name: 'Мария Ученица',
+          lessons_count: 10,
+          student_track: 'student',
+          metro: 'Северная',
+          average_rating: null,
+          works_count: 1,
+          has_avatar: false,
+        },
+      ],
+    },
+  })
+})
+
+test('legacy SEC-001: works_count публичного списка учитывает неодобренные работы', async () => {
+  const { body } = await getJson('/api/guest/portfolio-students')
+  const student = body.data.students.find((item) => item.id === fixtureIds.studentOneId)
+  assert.equal(student.works_count, 3)
+})
+
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {
   const studentsResult = await getJson('/api/guest/portfolio-students')
   const student = studentsResult.body.data.students.find((item) => item.full_name === 'Анна Ученица')

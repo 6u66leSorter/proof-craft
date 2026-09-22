@@ -69,7 +69,7 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| GET | `/api/guest/portfolio-students` | публичный | Профили учеников `studying` | medium | covered |
+| GET | `/api/guest/portfolio-students` | публичный | Профили учеников `studying`; `works_count` считает только `approved` | medium | nest-ready |
 | GET | `/api/guest/students/:student_id/portfolio` | публичный | Профиль и работы ученика | high | covered |
 | GET | `/api/guest/students/:student_id/avatar` | публичный | Аватар видимого ученика | medium | legacy |
 | GET | `/api/guest/homeworks/:id/file` | публичный | Файл работы видимого ученика | high | legacy |

@@ -23,6 +23,7 @@ Prisma 7.10 подключена к существующей SQLite как но�
 ```text
 controller/use case -> UserIdentityRepository -> PrismaUserIdentityRepository -> PrismaService
 controller/use case -> SessionRepository -> PrismaSessionRepository -> PrismaService
+controller/use case -> PortfolioStudentsRepository -> PrismaPortfolioStudentsRepository -> PrismaService
 ```
 
 `AppModule` подключает persistence через `SessionModule`, поэтому для запуска процесса теперь обязателен `DATABASE_URL`. Сам обработчик `/health` запросов к БД не выполняет; его изолированный e2e-тест не зависит от SQLite.
