@@ -1722,6 +1722,169 @@ test('GET /api/admin/profile-edits сохраняет validation, auth и role �
   })
 })
 
+test('POST /api/admin/profile-edits/:id одобряет заявку и обновляет профиль атомарно', async () => {
+  const setupDb = new Database(legacyDatabasePath, { readonly: true })
+  const edit = setupDb.prepare(`
+    SELECT id FROM student_profile_edits
+    WHERE student_id = ? AND status = 'pending'
+  `).get(fixtureIds.studentTwoId)
+  setupDb.close()
+
+  const { response, body } = await postJson(
+    `/api/admin/profile-edits/${edit.id}`,
+    { telegram_id: 1001, action: 'approve' },
+    1001,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const storedEdit = db.prepare(`
+    SELECT status, admin_comment, reviewed_at, reviewed_by_telegram_id
+    FROM student_profile_edits WHERE id = ?
+  `).get(edit.id)
+  const student = db.prepare(`
+    SELECT full_name, phone, metro FROM students WHERE id = ?
+  `).get(fixtureIds.studentTwoId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notification = db.prepare(`
+    SELECT id FROM app_notifications
+    WHERE kind = 'profile_edit_approved'
+  `).get()
+  db.close()
+
+  assert.equal(storedEdit.status, 'approved')
+  assert.equal(storedEdit.admin_comment, null)
+  assert.ok(storedEdit.reviewed_at)
+  assert.equal(storedEdit.reviewed_by_telegram_id, 1001)
+  assert.deepEqual(student, {
+    full_name: 'Мария Новая',
+    phone: '+79992223344',
+    metro: null,
+  })
+  assert.deepEqual(audit, {
+    action: 'profile_edit_approved',
+    meta: JSON.stringify({ edit_id: edit.id }),
+  })
+  assert.equal(notification, undefined)
+})
+
+test('POST /api/admin/profile-edits/:id отклоняет заявку через web-session', async () => {
+  const setupDb = new Database(legacyDatabasePath, { readonly: true })
+  const edit = setupDb.prepare(`
+    SELECT id FROM student_profile_edits
+    WHERE student_id = ? AND status = 'pending'
+  `).get(fixtureIds.studentOneId)
+  setupDb.close()
+
+  const response = await fetch(`${baseUrl}/api/admin/profile-edits/${edit.id}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Web-Session': testAdminWebSessionToken,
+    },
+    body: JSON.stringify({
+      telegram_id: 1001,
+      action: 'reject',
+      comment: 'Оставьте текущее имя',
+    }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const storedEdit = db.prepare(`
+    SELECT status, admin_comment, reviewed_at, reviewed_by_telegram_id
+    FROM student_profile_edits WHERE id = ?
+  `).get(edit.id)
+  const student = db.prepare(`
+    SELECT full_name, phone, metro FROM students WHERE id = ?
+  `).get(fixtureIds.studentOneId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notification = db.prepare(`
+    SELECT id FROM app_notifications
+    WHERE kind = 'profile_edit_rejectd'
+  `).get()
+  db.close()
+
+  assert.equal(storedEdit.status, 'rejected')
+  assert.equal(storedEdit.admin_comment, 'Оставьте текущее имя')
+  assert.ok(storedEdit.reviewed_at)
+  assert.equal(storedEdit.reviewed_by_telegram_id, 1001)
+  assert.deepEqual(student, {
+    full_name: 'Анна Ученица',
+    phone: '+79990000001',
+    metro: 'Центральная',
+  })
+  assert.deepEqual(audit, {
+    action: 'profile_edit_rejectd',
+    meta: JSON.stringify({ edit_id: edit.id }),
+  })
+  assert.equal(notification, undefined)
+})
+
+test('POST /api/admin/profile-edits/:id сохраняет validation, auth и role ошибки', async (context) => {
+  const validBody = { telegram_id: 1001, action: 'approve' }
+
+  await context.test('некорректные id, action и comment проверяются до credential', async () => {
+    for (const [path, body] of [
+      ['/api/admin/profile-edits/nope', validBody],
+      ['/api/admin/profile-edits/1', { telegram_id: 1001, action: 'archive' }],
+      ['/api/admin/profile-edits/1', { ...validBody, comment: 'x'.repeat(501) }],
+    ]) {
+      const result = await postJson(path, body)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+
+  await context.test('нет credential', async () => {
+    const result = await postJson('/api/admin/profile-edits/999999', validBody)
+    assert.equal(result.response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const result = await postJson('/api/admin/profile-edits/999999', validBody, 3001)
+    assert.equal(result.response.status, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const result = await postJson(
+      '/api/admin/profile-edits/999999',
+      { telegram_id: 9999, action: 'approve' },
+      9999,
+    )
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не администратор', async () => {
+    const result = await postJson(
+      '/api/admin/profile-edits/999999',
+      { telegram_id: 3001, action: 'approve' },
+      3001,
+    )
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Доступ только для администраторов.',
+    })
+  })
+
+  await context.test('заявка отсутствует или уже обработана', async () => {
+    const result = await postJson('/api/admin/profile-edits/999999', validBody, 1001)
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Заявка не найдена или уже обработана.',
+    })
+  })
+})
+
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {
   const studentsResult = await getJson('/api/guest/portfolio-students')
   const student = studentsResult.body.data.students.find((item) => item.full_name === 'Анна Ученица')
@@ -2056,3 +2219,4 @@ test.todo('SEC-001: публичный профиль должен возвра�
 test.todo('SEC-001: публичная файловая ручка должна отклонять не-approved работу')
 test.todo('SEC-002: преподаватель должен получать чаты только назначенных учеников')
 test.todo('BUG-001: admin/students должен точно фильтровать studying и completed')
+test.todo('BUG-002: обработка profile edit должна уведомлять ученика')

@@ -4,6 +4,10 @@ import {
   ProfilesRepository,
   type PendingProfileEdit,
 } from './profiles.repository.js'
+import type {
+  ProfileEditReviewAction,
+  ReviewProfileEditCommand,
+} from './profile-edit-review.body.js'
 
 @Injectable()
 export class PrismaProfilesRepository implements ProfilesRepository {
@@ -42,6 +46,67 @@ export class PrismaProfilesRepository implements ProfilesRepository {
       currentMetro: edit.students.metro,
       telegramId: Number(edit.students.users.telegram_id),
     }))
+  }
+
+  async reviewProfileEdit(
+    command: ReviewProfileEditCommand,
+    reviewerTelegramId: number,
+    reviewedAt: string,
+  ): Promise<boolean> {
+    return await this.prisma.$transaction(async (transaction) => {
+      const claimed = await transaction.student_profile_edits.updateMany({
+        where: { id: command.editId, status: 'pending' },
+        data: {
+          status: command.action === 'approve' ? 'approved' : 'rejected',
+          reviewed_at: reviewedAt,
+          reviewed_by_telegram_id: reviewerTelegramId,
+          ...(command.action === 'reject'
+            ? { admin_comment: command.comment }
+            : {}),
+        },
+      })
+      if (claimed.count === 0) return false
+
+      if (command.action === 'approve') {
+        const edit = await transaction.student_profile_edits.findUniqueOrThrow({
+          where: { id: command.editId },
+          select: {
+            student_id: true,
+            new_full_name: true,
+            new_phone: true,
+            new_metro: true,
+          },
+        })
+        await transaction.students.update({
+          where: { id: edit.student_id },
+          data: {
+            full_name: edit.new_full_name,
+            phone: edit.new_phone,
+            metro: edit.new_metro,
+            updated_at: reviewedAt,
+          },
+        })
+      }
+      return true
+    })
+  }
+
+  async recordProfileEditReview(
+    actorUserId: number,
+    editId: number,
+    action: ProfileEditReviewAction,
+  ): Promise<void> {
+    const auditAction =
+      action === 'approve'
+        ? 'profile_edit_approved'
+        : 'profile_edit_rejectd' // BUG-002: legacy event name is part of the current contract.
+    await this.prisma.audit_log.create({
+      data: {
+        actor_user_id: actorUserId,
+        action: auditAction,
+        meta: JSON.stringify({ edit_id: editId }),
+      },
+    })
   }
 
   async findStudentForEdit(userId: number): Promise<{

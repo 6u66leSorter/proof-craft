@@ -63,7 +63,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `POST /api/student/about` и `POST /api/teacher/about` реализованы в общем ProfilesModule: body валидируется до credential по legacy-контракту, отдельные use cases принимают проверенный principal, а общий Prisma repository обновляет только связанный с ним профиль нужного типа.
 - `POST /api/student/profile-edit` реализован в ProfilesModule: новая pending-заявка атомарно отклоняет предыдущую, профиль не меняется до одобрения, аудит и app-уведомления записываются отдельно, а Telegram-доставка администраторам выполняется best-effort через общий gateway.
 - `GET /api/admin/profile-edits` реализован в ProfilesModule: общая admin-проверка различает неизвестного пользователя и недостаточную роль, Prisma repository возвращает только pending-заявки с текущими/предложенными данными по `created_at DESC`.
-- Следующий маршрут — `POST /api/admin/profile-edits/:id`: одобрение или отклонение заявки с аудитом и уведомлением ученика.
+- `POST /api/admin/profile-edits/:id` реализован в ProfilesModule: approve атомарно переносит предложенные поля в student-профиль и завершает заявку, reject атомарно сохраняет комментарий, обе ветки фиксируют reviewer и best-effort аудит. Отсутствующее legacy-уведомление ученика и имя reject-события `profile_edit_rejectd` временно сохранены как `BUG-002`.
+- Следующий маршрут — `GET /api/admin/teacher-applications`: чтение очереди необработанных заявок преподавателей.
 
 ### 5. Вывод legacy и миграция СУБД
 

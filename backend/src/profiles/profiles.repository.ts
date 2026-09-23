@@ -1,3 +1,8 @@
+import type {
+  ProfileEditReviewAction,
+  ReviewProfileEditCommand,
+} from './profile-edit-review.body.js'
+
 export type PendingProfileEdit = {
   id: number
   studentId: number
@@ -13,6 +18,18 @@ export type PendingProfileEdit = {
 
 export abstract class ProfilesRepository {
   abstract listPendingProfileEdits(): Promise<PendingProfileEdit[]>
+
+  abstract reviewProfileEdit(
+    command: ReviewProfileEditCommand,
+    reviewerTelegramId: number,
+    reviewedAt: string,
+  ): Promise<boolean>
+
+  abstract recordProfileEditReview(
+    actorUserId: number,
+    editId: number,
+    action: ProfileEditReviewAction,
+  ): Promise<void>
 
   abstract findStudentForEdit(userId: number): Promise<{
     studentId: number

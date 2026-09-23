@@ -109,7 +109,7 @@
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/admin/profile-edits` | Telegram, VK или web-session; роль admin | Pending-заявки с текущими и предложенными данными, новые сверху | medium | nest-ready |
-| POST | `/api/admin/profile-edits/:id` | администратор | Принятие/отклонение, аудит, уведомление | high | legacy |
+| POST | `/api/admin/profile-edits/:id` | Telegram, VK или web-session; роль admin | Транзакционное принятие/отклонение и best-effort аудит; уведомление ученика отсутствует по legacy `BUG-002` | high | nest-ready |
 
 ## Администрирование учеников и преподавателей
 

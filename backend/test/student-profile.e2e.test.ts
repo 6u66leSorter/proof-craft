@@ -716,3 +716,217 @@ test('admin/profile-edits сохраняет validation, auth и role ошибк
     })
   })
 })
+
+test('POST /api/admin/profile-edits/:id одобряет заявку и обновляет профиль атомарно', async () => {
+  const setupDb = new Database(databasePath, { readonly: true })
+  const edit = setupDb.prepare(`
+    SELECT spe.id
+    FROM student_profile_edits spe
+    JOIN students s ON s.id = spe.student_id
+    JOIN users u ON u.id = s.user_id
+    WHERE u.telegram_id = ? AND spe.status = 'pending'
+  `).get(otherStudentTelegramId) as { id: number }
+  setupDb.close()
+  const deliveriesBefore = deliveredNotifications.length
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/admin/profile-edits/${edit.id}`,
+    headers: authHeaders(adminTelegramId),
+    payload: { telegram_id: adminTelegramId, action: 'approve' },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+
+  const db = new Database(databasePath, { readonly: true })
+  const storedEdit = db.prepare(`
+    SELECT status, admin_comment, reviewed_at, reviewed_by_telegram_id
+    FROM student_profile_edits WHERE id = ?
+  `).get(edit.id) as {
+    status: string
+    admin_comment: string | null
+    reviewed_at: string | null
+    reviewed_by_telegram_id: number | null
+  }
+  const student = db.prepare(`
+    SELECT s.full_name, s.phone, s.metro
+    FROM students s JOIN users u ON u.id = s.user_id
+    WHERE u.telegram_id = ?
+  `).get(otherStudentTelegramId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notification = db.prepare(`
+    SELECT id FROM app_notifications WHERE kind = 'profile_edit_approved'
+  `).get()
+  db.close()
+
+  assert.equal(storedEdit.status, 'approved')
+  assert.equal(storedEdit.admin_comment, null)
+  assert.ok(storedEdit.reviewed_at)
+  assert.equal(storedEdit.reviewed_by_telegram_id, adminTelegramId)
+  assert.deepEqual(student, {
+    full_name: 'Completed Student',
+    phone: '+70000000002',
+    metro: null,
+  })
+  assert.deepEqual(audit, {
+    action: 'profile_edit_approved',
+    meta: JSON.stringify({ edit_id: edit.id }),
+  })
+  assert.equal(notification, undefined)
+  assert.equal(deliveredNotifications.length, deliveriesBefore)
+})
+
+test('POST admin/profile-edits/:id отклоняет заявку через web-session и nginx-путь', async () => {
+  const setupDb = new Database(databasePath, { readonly: true })
+  const edit = setupDb.prepare(`
+    SELECT spe.id
+    FROM student_profile_edits spe
+    JOIN students s ON s.id = spe.student_id
+    JOIN users u ON u.id = s.user_id
+    WHERE u.telegram_id = ? AND spe.status = 'pending'
+  `).get(studentTelegramId) as { id: number }
+  setupDb.close()
+  const deliveriesBefore = deliveredNotifications.length
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/admin/profile-edits/${edit.id}`,
+    headers: { 'x-web-session': adminWebSessionToken },
+    payload: {
+      telegram_id: adminTelegramId,
+      action: 'reject',
+      comment: 'Оставьте текущие данные',
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+
+  const db = new Database(databasePath, { readonly: true })
+  const storedEdit = db.prepare(`
+    SELECT status, admin_comment, reviewed_at, reviewed_by_telegram_id
+    FROM student_profile_edits WHERE id = ?
+  `).get(edit.id) as {
+    status: string
+    admin_comment: string | null
+    reviewed_at: string | null
+    reviewed_by_telegram_id: number | null
+  }
+  const student = db.prepare(`
+    SELECT s.full_name, s.phone, s.metro
+    FROM students s JOIN users u ON u.id = s.user_id
+    WHERE u.telegram_id = ?
+  `).get(studentTelegramId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notification = db.prepare(`
+    SELECT id FROM app_notifications WHERE kind = 'profile_edit_rejectd'
+  `).get()
+  db.close()
+
+  assert.equal(storedEdit.status, 'rejected')
+  assert.equal(storedEdit.admin_comment, 'Оставьте текущие данные')
+  assert.ok(storedEdit.reviewed_at)
+  assert.equal(storedEdit.reviewed_by_telegram_id, adminTelegramId)
+  assert.deepEqual(student, {
+    full_name: 'Student Profile',
+    phone: '+70000000000',
+    metro: null,
+  })
+  assert.deepEqual(audit, {
+    action: 'profile_edit_rejectd',
+    meta: JSON.stringify({ edit_id: edit.id }),
+  })
+  assert.equal(notification, undefined)
+  assert.equal(deliveredNotifications.length, deliveriesBefore)
+})
+
+test('POST admin/profile-edits/:id сохраняет validation, auth и role ошибки', async (context) => {
+  const validBody = { telegram_id: adminTelegramId, action: 'approve' }
+
+  await context.test('validation выполняется до credential', async () => {
+    const invalidCases: Array<{
+      url: string
+      payload: Record<string, unknown>
+    }> = [
+      { url: '/api/admin/profile-edits/nope', payload: validBody },
+      {
+        url: '/api/admin/profile-edits/1',
+        payload: { telegram_id: adminTelegramId, action: 'archive' },
+      },
+      {
+        url: '/api/admin/profile-edits/1',
+        payload: { ...validBody, comment: 'x'.repeat(501) },
+      },
+    ]
+    for (const { url, payload } of invalidCases) {
+      const response = await app.inject({ method: 'POST', url, payload })
+      assert.equal(response.statusCode, 400)
+      assert.deepEqual(response.json(), {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+
+  await context.test('нет credential', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profile-edits/999999',
+      payload: validBody,
+    })
+    assert.equal(response.statusCode, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profile-edits/999999',
+      headers: authHeaders(studentTelegramId),
+      payload: validBody,
+    })
+    assert.equal(response.statusCode, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const unknownTelegramId = 9999
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profile-edits/999999',
+      headers: authHeaders(unknownTelegramId),
+      payload: { telegram_id: unknownTelegramId, action: 'approve' },
+    })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не администратор', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profile-edits/999999',
+      headers: authHeaders(studentTelegramId),
+      payload: { telegram_id: studentTelegramId, action: 'approve' },
+    })
+    assert.equal(response.statusCode, 403)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Доступ только для администраторов.',
+    })
+  })
+
+  await context.test('заявка отсутствует или уже обработана', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profile-edits/999999',
+      headers: authHeaders(adminTelegramId),
+      payload: validBody,
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Заявка не найдена или уже обработана.',
+    })
+  })
+})
