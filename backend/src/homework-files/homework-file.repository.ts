@@ -1,5 +1,6 @@
 export type HomeworkFileAccess = {
   fileId: string | null
+  revisionFileId: string | null
   contentType: string
   isOwner: boolean
   isAssignedTeacher: boolean

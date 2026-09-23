@@ -14,6 +14,7 @@ export class PrismaHomeworkFileRepository implements HomeworkFileRepository {
       where: { id: homeworkId },
       select: {
         file_id: true,
+        revision_student_file_id: true,
         content_type: true,
         students: {
           select: {
@@ -28,6 +29,7 @@ export class PrismaHomeworkFileRepository implements HomeworkFileRepository {
     if (!homework) return null
     return {
       fileId: homework.file_id,
+      revisionFileId: homework.revision_student_file_id,
       contentType: homework.content_type,
       isOwner: userId != null && homework.students.user_id === userId,
       isAssignedTeacher:

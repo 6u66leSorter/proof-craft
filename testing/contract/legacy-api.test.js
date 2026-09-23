@@ -57,9 +57,11 @@ const seedLegacyDatabase = (databasePath) => {
   mkdirSync(uploadsDir, { recursive: true })
   const approvedFilePath = join(uploadsDir, 'approved.txt')
   const pendingFilePath = join(uploadsDir, 'pending.txt')
+  const revisionFilePath = join(uploadsDir, 'revision.svg')
   const secondStudentFilePath = join(uploadsDir, 'second-student.txt')
   writeFileSync(approvedFilePath, 'approved file')
   writeFileSync(pendingFilePath, testImageSvg)
+  writeFileSync(revisionFilePath, testImageSvg)
   writeFileSync(secondStudentFilePath, 'second student file')
   const insertUser = db.prepare(`
     INSERT INTO users (telegram_id, first_name, last_name, role)
@@ -126,7 +128,7 @@ const seedLegacyDatabase = (databasePath) => {
     '2026-09-22 12:00:00',
     '2026-09-22 12:00:00',
     'Исправленное описание',
-    'telegram_revision_file_12345',
+    revisionFilePath,
     revisionHomeworkId,
   )
   updateHomework.run('2026-09-19 12:00:00', '2026-09-19 12:00:00', null, null, approvedDocumentHomeworkId)
@@ -249,6 +251,7 @@ const seedLegacyDatabase = (databasePath) => {
     teacherCommentId,
     approvedFilePath,
     pendingFilePath,
+    revisionFilePath,
   }
 }
 
@@ -483,8 +486,8 @@ test('GET /api/student/homeworks фиксирует полный агрегир�
           review_count: 1,
           created_at: '2026-09-22 12:00:00',
           revision_student_text: 'Исправленное описание',
-          revision_has_local_file: false,
-          revision_has_telegram_file: true,
+          revision_has_local_file: true,
+          revision_has_telegram_file: false,
           reviews: [
             {
               id: fixtureIds.revisionReviewId,
@@ -1083,6 +1086,96 @@ test('авторизованный файл сохраняет validation, auth 
     )
     assert.equal(response.status, 404)
     assert.deepEqual(body, { ok: false, error: 'Вложение недоступно для скачивания.' })
+  })
+})
+
+test('владелец, назначенный преподаватель и администратор читают файл исправления', async () => {
+  const path = `/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=`
+  for (const telegramId of [3001, 2001, 1001]) {
+    const response = await getResponse(`${path}${telegramId}`, telegramId)
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('content-type'), 'image/jpeg')
+    assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
+    assert.equal(await response.text(), testImageSvg)
+  }
+})
+
+test('файл исправления поддерживает preview и web-session', async () => {
+  const preview = await getResponse(
+    `/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=3001&preview=true`,
+    3001,
+  )
+  assert.equal(preview.status, 200)
+  assert.equal(preview.headers.get('content-type'), 'image/jpeg')
+  assert.deepEqual([...new Uint8Array(await preview.arrayBuffer()).slice(0, 2)], [0xff, 0xd8])
+
+  const webResponse = await fetch(
+    `${baseUrl}/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=3001`,
+    { headers: { 'X-Web-Session': testWebSessionToken } },
+  )
+  assert.equal(webResponse.status, 200)
+  assert.equal(await webResponse.text(), testImageSvg)
+})
+
+test('посторонний ученик не читает файл исправления', async () => {
+  const { response, body } = await getJson(
+    `/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=3002`,
+    3002,
+  )
+  assert.equal(response.status, 403)
+  assert.deepEqual(body, { ok: false, error: 'Нет доступа к этому файлу.' })
+})
+
+test('файл исправления сохраняет validation, auth и not-found ошибки', async (context) => {
+  await context.test('некорректный id', async () => {
+    const { response, body } = await getJson(
+      '/api/homeworks/nope/revision/file?telegram_id=3001',
+      3001,
+    )
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('некорректный preview', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=3001&preview=0`,
+      3001,
+    )
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await getJson(
+      `/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=3001`,
+    )
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await getJson(
+      `/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=3001`,
+      3002,
+    )
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('файл исправления отсутствует', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/${fixtureIds.pendingHomeworkId}/revision/file?telegram_id=3002`,
+      3002,
+    )
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Файл исправления не найден.' })
+  })
+
+  await context.test('подписанный неизвестный пользователь не получает файл', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=9999`,
+      9999,
+    )
+    assert.equal(response.status, 403)
+    assert.deepEqual(body, { ok: false, error: 'Нет доступа к этому файлу.' })
   })
 })
 

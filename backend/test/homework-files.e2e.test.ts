@@ -72,6 +72,8 @@ const seedHomeworkFiles = (databasePath: string): FixtureIds => {
   const ownerHomework = Number(
     insertHomework.run(ownerStudent, 1, 'photo', ownerFile).lastInsertRowid,
   )
+  db.prepare(`UPDATE homeworks SET revision_student_file_id = ? WHERE id = ?`)
+    .run(ownerFile, ownerHomework)
   const missingFileHomework = Number(
     insertHomework.run(ownerStudent, 2, 'text', null).lastInsertRowid,
   )
@@ -244,6 +246,109 @@ test('авторизованный файл сохраняет validation, auth 
     const response = await app.inject({
       method: 'GET',
       url: `/api/homeworks/${fixtureIds.ownerHomework}/file?telegram_id=${unknownTelegramId}`,
+      headers: authHeaders(unknownTelegramId),
+    })
+    assert.equal(response.statusCode, 403)
+    assert.deepEqual(response.json(), { ok: false, error: 'Нет доступа к этому файлу.' })
+  })
+})
+
+test('владелец, назначенный преподаватель и администратор читают файл исправления', async () => {
+  for (const telegramId of [ownerTelegramId, teacherTelegramId, adminTelegramId]) {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/homeworks/${fixtureIds.ownerHomework}/revision/file?telegram_id=${telegramId}`,
+      headers: authHeaders(telegramId),
+    })
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.headers['content-type'], 'image/jpeg')
+    assert.equal(response.headers['cross-origin-resource-policy'], 'cross-origin')
+    assert.equal(response.body, testImageSvg)
+  }
+})
+
+test('файл исправления поддерживает preview, web-session и nginx-путь', async () => {
+  const preview = await app.inject({
+    method: 'GET',
+    url: `/api/homeworks/${fixtureIds.ownerHomework}/revision/file?telegram_id=${ownerTelegramId}&preview=1`,
+    headers: authHeaders(ownerTelegramId),
+  })
+  assert.equal(preview.statusCode, 200)
+  assert.equal(preview.headers['content-type'], 'image/jpeg')
+  assert.deepEqual([...preview.rawPayload.subarray(0, 2)], [0xff, 0xd8])
+
+  const web = await app.inject({
+    method: 'GET',
+    url: `/homeworks/${fixtureIds.ownerHomework}/revision/file?telegram_id=${ownerTelegramId}`,
+    headers: { 'x-web-session': webSessionToken },
+  })
+  assert.equal(web.statusCode, 200)
+  assert.equal(web.body, testImageSvg)
+})
+
+test('посторонний ученик не читает файл исправления', async () => {
+  const response = await app.inject({
+    method: 'GET',
+    url: `/api/homeworks/${fixtureIds.ownerHomework}/revision/file?telegram_id=${outsiderTelegramId}`,
+    headers: authHeaders(outsiderTelegramId),
+  })
+  assert.equal(response.statusCode, 403)
+  assert.deepEqual(response.json(), { ok: false, error: 'Нет доступа к этому файлу.' })
+})
+
+test('файл исправления сохраняет validation, auth и not-found ошибки', async (context) => {
+  await context.test('некорректный id', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/homeworks/nope/revision/file?telegram_id=${ownerTelegramId}`,
+      headers: authHeaders(ownerTelegramId),
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('некорректный preview', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/homeworks/${fixtureIds.ownerHomework}/revision/file?telegram_id=${ownerTelegramId}&preview=0`,
+      headers: authHeaders(ownerTelegramId),
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/homeworks/${fixtureIds.ownerHomework}/revision/file?telegram_id=${ownerTelegramId}`,
+    })
+    assert.equal(response.statusCode, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/homeworks/${fixtureIds.ownerHomework}/revision/file?telegram_id=${ownerTelegramId}`,
+      headers: authHeaders(outsiderTelegramId),
+    })
+    assert.equal(response.statusCode, 403)
+  })
+
+  await context.test('файл исправления отсутствует до проверки доступа', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/homeworks/${fixtureIds.missingFileHomework}/revision/file?telegram_id=${outsiderTelegramId}`,
+      headers: authHeaders(outsiderTelegramId),
+    })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Файл исправления не найден.' })
+  })
+
+  await context.test('подписанный неизвестный пользователь не получает файл', async () => {
+    const unknownTelegramId = 9999
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/homeworks/${fixtureIds.ownerHomework}/revision/file?telegram_id=${unknownTelegramId}`,
       headers: authHeaders(unknownTelegramId),
     })
     assert.equal(response.statusCode, 403)
