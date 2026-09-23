@@ -1028,6 +1028,96 @@ test('собственный аватар сохраняет validation, auth и
   })
 })
 
+test('владелец, назначенный преподаватель и администратор читают аватар ученика', async () => {
+  const path = `/api/students/${fixtureIds.studentOneId}/avatar?telegram_id=`
+  for (const telegramId of [3001, 2001, 1001]) {
+    const response = await getResponse(`${path}${telegramId}`, telegramId)
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('content-type'), 'image/jpeg')
+    assert.equal(response.headers.get('cache-control'), 'private, max-age=3600')
+    assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
+    assert.equal(await response.text(), 'approved file')
+  }
+})
+
+test('ролевой аватар поддерживает web-session владельца', async () => {
+  const response = await fetch(
+    `${baseUrl}/api/students/${fixtureIds.studentOneId}/avatar?telegram_id=3001`,
+    { headers: { 'X-Web-Session': testWebSessionToken } },
+  )
+  assert.equal(response.status, 200)
+  assert.equal(await response.text(), 'approved file')
+})
+
+test('посторонний ученик и неназначенный преподаватель не читают аватар', async () => {
+  const student = await getJson(
+    `/api/students/${fixtureIds.studentOneId}/avatar?telegram_id=3002`,
+    3002,
+  )
+  assert.equal(student.response.status, 403)
+  assert.deepEqual(student.body, { ok: false, error: 'Нет доступа к профилю ученика.' })
+
+  const teacher = await getJson(
+    `/api/students/${fixtureIds.studentTwoId}/avatar?telegram_id=2001`,
+    2001,
+  )
+  assert.equal(teacher.response.status, 403)
+  assert.deepEqual(teacher.body, { ok: false, error: 'Нет доступа к профилю ученика.' })
+})
+
+test('ролевой аватар сохраняет validation, auth и порядок ошибок', async (context) => {
+  await context.test('некорректный student_id', async () => {
+    const { response, body } = await getJson('/api/students/nope/avatar?telegram_id=3001', 3001)
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет telegram_id', async () => {
+    const { response, body } = await getJson(`/api/students/${fixtureIds.studentOneId}/avatar`)
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await getJson(
+      `/api/students/${fixtureIds.studentOneId}/avatar?telegram_id=3001`,
+    )
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await getJson(
+      `/api/students/${fixtureIds.studentOneId}/avatar?telegram_id=3001`,
+      3002,
+    )
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('подписанный неизвестный пользователь не получает доступ', async () => {
+    const { response, body } = await getJson(
+      `/api/students/${fixtureIds.studentOneId}/avatar?telegram_id=9999`,
+      9999,
+    )
+    assert.equal(response.status, 403)
+    assert.deepEqual(body, { ok: false, error: 'Нет доступа к профилю ученика.' })
+  })
+
+  await context.test('у доступного ученика нет аватара', async () => {
+    const { response, body } = await getJson(
+      `/api/students/${fixtureIds.studentTwoId}/avatar?telegram_id=1001`,
+      1001,
+    )
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Аватар не установлен.' })
+  })
+
+  await context.test('администратор получает avatar-ошибку для отсутствующего профиля', async () => {
+    const { response, body } = await getJson('/api/students/999999/avatar?telegram_id=1001', 1001)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Аватар не установлен.' })
+  })
+})
+
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {
   const studentsResult = await getJson('/api/guest/portfolio-students')
   const student = studentsResult.body.data.students.find((item) => item.full_name === 'Анна Ученица')

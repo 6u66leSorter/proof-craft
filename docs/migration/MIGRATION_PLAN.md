@@ -58,7 +58,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `GET /api/homeworks/:homeworkId/revision/file` реализован в том же модуле: файл исправления переиспользует access boundary, local/Telegram storage и preview.
 - `GET /api/homeworks/:homeworkId/attachments/:attachmentId/file` реализован в том же модуле: вложение обязано принадлежать работе, а доступ, local/Telegram storage и photo preview переиспользуют общие границы.
 - `GET /api/student/me/avatar` реализован в отдельном StudentAvatarsModule: student определяется по внутреннему user ID проверенного principal, а файл безопасно открывается общим storage adapter.
-- Следующий маршрут — `GET /api/students/:student_id/avatar`: ролевой доступ к аватару владельцу, назначенному преподавателю и администратору.
+- `GET /api/students/:student_id/avatar` реализован в том же модуле: доступ разрешён владельцу, назначенному преподавателю и администратору по внутреннему user ID.
+- Следующий маршрут — `POST /api/student/me/avatar`: multipart-загрузка, нормализация и безопасная замена собственного аватара.
 
 ### 5. Вывод legacy и миграция СУБД
 

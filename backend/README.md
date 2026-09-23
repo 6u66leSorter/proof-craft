@@ -1,6 +1,6 @@
 # Proof Craft backend
 
-Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления, чтение работ и собственного аватара ученика, а также авторизованные файлы работы с вложениями; production routing пока остаётся на legacy.
+Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления, чтение работ и аватаров учеников, а также авторизованные файлы работы с вложениями; production routing пока остаётся на legacy.
 
 ## Команды
 
@@ -55,6 +55,8 @@ DATABASE_URL=file:/absolute/path/to/barber.db npm run backend:start
 `GET /api/homeworks/:homeworkId/attachments/:attachmentId/file` сначала подтверждает принадлежность вложения работе из URL, затем применяет ту же ролевую матрицу. Общий storage adapter отдаёт local/Telegram-файл и создаёт preview только для `photo`.
 
 `GET /api/student/me/avatar` находит student-профиль только по внутреннему user ID проверенного principal и отдаёт локальный JPEG через общий storage adapter с `private, max-age=3600`. Отсутствующий профиль сохраняет legacy-ответ `Аватар не установлен.`.
+
+`GET /api/students/:student_id/avatar` переиспользует файловую логику, но разрешает доступ только владельцу, назначенному преподавателю или администратору. Для совместимости access-check выполняется раньше проверки существования профиля.
 
 Безопасные команды:
 
