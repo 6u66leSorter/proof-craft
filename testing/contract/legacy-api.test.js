@@ -16,6 +16,7 @@ const projectRoot = resolve(testFileDir, '..', '..')
 let apiProcess
 let baseUrl
 let temporaryRoot
+let legacyDatabasePath
 let serverOutput = ''
 const testBotToken = '123456:test-contract-token'
 const testVkSecret = 'legacy-contract-vk-secret'
@@ -361,7 +362,8 @@ before(async () => {
   apiProcess.stderr.on('data', (chunk) => { serverOutput += String(chunk) })
 
   await waitForHealth()
-  fixtureIds = seedLegacyDatabase(join(isolatedProject, 'data', 'barber.db'))
+  legacyDatabasePath = join(isolatedProject, 'data', 'barber.db')
+  fixtureIds = seedLegacyDatabase(legacyDatabasePath)
 })
 
 after(async () => {
@@ -1430,6 +1432,196 @@ test('POST /api/teacher/about сохраняет validation, auth и role оши
       })
     })
   }
+})
+
+test('POST /api/student/profile-edit создаёт pending-заявку, аудит и уведомление администратору', async () => {
+  const { response, body } = await postJson(
+    '/api/student/profile-edit',
+    {
+      telegram_id: 3001,
+      full_name: '  Анна Новая  ',
+      phone: ' 12345 ',
+      metro: '',
+    },
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const edit = db.prepare(`
+    SELECT student_id, new_full_name, new_phone, new_metro, status
+    FROM student_profile_edits
+    ORDER BY id DESC LIMIT 1
+  `).get()
+  const student = db.prepare(`
+    SELECT full_name, phone, metro FROM students WHERE id = ?
+  `).get(fixtureIds.studentOneId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notification = db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE kind = 'profile_edit_pending'
+    ORDER BY id DESC LIMIT 1
+  `).get()
+  db.close()
+
+  assert.deepEqual(edit, {
+    student_id: fixtureIds.studentOneId,
+    new_full_name: '  Анна Новая  ',
+    new_phone: ' 12345 ',
+    new_metro: null,
+    status: 'pending',
+  })
+  assert.deepEqual(student, {
+    full_name: 'Анна Ученица',
+    phone: '+79990000001',
+    metro: 'Центральная',
+  })
+  assert.deepEqual(audit, {
+    action: 'student_profile_edit_submitted',
+    meta: JSON.stringify({ student_id: fixtureIds.studentOneId }),
+  })
+  assert.deepEqual(notification, {
+    kind: 'profile_edit_pending',
+    body: 'Ученик Анна Ученица отправил заявку на изменение профиля.',
+    payload: JSON.stringify({ student_id: fixtureIds.studentOneId }),
+  })
+})
+
+test('повторная profile-edit заявка отклоняет предыдущую и поддерживает web-session', async () => {
+  const response = await fetch(`${baseUrl}/api/student/profile-edit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Web-Session': testWebSessionToken,
+    },
+    body: JSON.stringify({
+      telegram_id: 3001,
+      full_name: 'Анна Последняя',
+      phone: '+79991112233',
+      metro: 'Новая',
+    }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const edits = db.prepare(`
+    SELECT new_full_name, status
+    FROM student_profile_edits
+    WHERE student_id = ?
+    ORDER BY id ASC
+  `).all(fixtureIds.studentOneId)
+  db.close()
+  assert.deepEqual(edits, [
+    { new_full_name: '  Анна Новая  ', status: 'rejected' },
+    { new_full_name: 'Анна Последняя', status: 'pending' },
+  ])
+})
+
+test('POST /api/student/profile-edit доступен completed и запрещён в другом статусе', async () => {
+  const db = new Database(legacyDatabasePath)
+  db.prepare(`UPDATE students SET status = 'completed' WHERE id = ?`).run(fixtureIds.studentTwoId)
+  db.close()
+
+  const completed = await postJson(
+    '/api/student/profile-edit',
+    {
+      telegram_id: 3002,
+      full_name: 'Мария Новая',
+      phone: '+79992223344',
+    },
+    3002,
+  )
+  assert.equal(completed.response.status, 200)
+  assert.deepEqual(completed.body, { ok: true })
+
+  const moderationDb = new Database(legacyDatabasePath)
+  moderationDb.prepare(`UPDATE students SET status = 'moderation' WHERE id = ?`).run(fixtureIds.studentTwoId)
+  moderationDb.close()
+  const moderation = await postJson(
+    '/api/student/profile-edit',
+    {
+      telegram_id: 3002,
+      full_name: 'Мария Ещё Новее',
+      phone: '+79993334455',
+    },
+    3002,
+  )
+  assert.equal(moderation.response.status, 403)
+  assert.deepEqual(moderation.body, {
+    ok: false,
+    error: 'Редактирование профиля недоступно в текущем статусе.',
+  })
+
+  const restoreDb = new Database(legacyDatabasePath)
+  restoreDb.prepare(`UPDATE students SET status = 'studying' WHERE id = ?`).run(fixtureIds.studentTwoId)
+  restoreDb.close()
+})
+
+test('POST /api/student/profile-edit сохраняет validation, auth и role ошибки', async (context) => {
+  const validBody = {
+    telegram_id: 3001,
+    full_name: 'Анна Ученица',
+    phone: '+79990000001',
+  }
+  for (const [name, patch] of [
+    ['короткое имя', { full_name: 'А' }],
+    ['короткий телефон', { phone: '1234' }],
+    ['длинное метро', { metro: 'x'.repeat(81) }],
+  ]) {
+    await context.test(name, async () => {
+      const { response, body } = await postJson(
+        '/api/student/profile-edit',
+        { ...validBody, ...patch },
+        3001,
+      )
+      assert.equal(response.status, 400)
+      assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+    })
+  }
+
+  await context.test('validation выполняется до credential', async () => {
+    const { response, body } = await postJson('/api/student/profile-edit', {
+      telegram_id: 3001,
+      full_name: 'А',
+      phone: '+79990000001',
+    })
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await postJson('/api/student/profile-edit', validBody)
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await postJson('/api/student/profile-edit', validBody, 3002)
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const { response, body } = await postJson(
+      '/api/student/profile-edit',
+      { ...validBody, telegram_id: 9999 },
+      9999,
+    )
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не ученик', async () => {
+    const { response, body } = await postJson(
+      '/api/student/profile-edit',
+      { ...validBody, telegram_id: 2001 },
+      2001,
+    )
+    assert.equal(response.status, 403)
+    assert.deepEqual(body, { ok: false, error: 'Только ученики могут редактировать профиль.' })
+  })
 })
 
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {

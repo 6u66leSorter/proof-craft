@@ -1,6 +1,6 @@
 # Proof Craft backend
 
-Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления, чтение работ, чтение и загрузка аватаров учеников, изменение описаний student/teacher-профилей, а также авторизованные файлы работы с вложениями; production routing пока остаётся на legacy.
+Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления, чтение работ, чтение и загрузка аватаров учеников, изменение описаний student/teacher-профилей, заявки на изменение student-профиля, а также авторизованные файлы работы с вложениями; production routing пока остаётся на legacy.
 
 ## Команды
 
@@ -61,6 +61,8 @@ DATABASE_URL=file:/absolute/path/to/barber.db npm run backend:start
 `POST /api/student/me/avatar` потоково принимает multipart-файл с лимитом `MAX_HOMEWORK_UPLOAD_MB`, создаёт JPEG 400×400 и только затем обновляет student через Prisma. Новый файл очищается при ошибке БД или обработки; старый удаляется после успешного обновления и только если находится внутри `uploads`.
 
 `POST /api/student/about` и `POST /api/teacher/about` принимают описание длиной до 1000 символов, обрезают внешние пробелы и сохраняют пустое значение как `NULL`. Нужный профиль определяется только по внутреннему user ID проверенного Telegram/VK/web-session principal; controllers не обращаются к Prisma напрямую.
+
+`POST /api/student/profile-edit` доступен student-профилям `studying` и `completed`. Транзакция отклоняет прежнюю pending-заявку и создаёт новую, не изменяя текущий профиль. После записи use case совместимо с legacy добавляет аудит, app-уведомления и best-effort Telegram-сообщения администраторам через отдельный gateway; сбой вспомогательных уведомлений не отменяет заявку.
 
 Безопасные команды:
 

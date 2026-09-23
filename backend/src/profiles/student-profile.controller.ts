@@ -4,6 +4,12 @@ import { CurrentPrincipal } from '../auth/current-principal.decorator.js'
 import type { AuthenticatedPrincipal } from '../auth/auth.types.js'
 import { aboutCommandFrom, type AboutRequest } from './about.body.js'
 import { AboutGuard } from './about.guard.js'
+import {
+  profileEditCommandFrom,
+  type ProfileEditRequest,
+} from './profile-edit.body.js'
+import { ProfileEditGuard } from './profile-edit.guard.js'
+import { SubmitStudentProfileEditUseCase } from './submit-student-profile-edit.use-case.js'
 import { UpdateStudentAboutUseCase } from './update-student-about.use-case.js'
 
 @Controller(['api/student', 'student'])
@@ -11,6 +17,8 @@ export class StudentProfileController {
   constructor(
     @Inject(UpdateStudentAboutUseCase)
     private readonly updateStudentAbout: UpdateStudentAboutUseCase,
+    @Inject(SubmitStudentProfileEditUseCase)
+    private readonly submitProfileEdit: SubmitStudentProfileEditUseCase,
   ) {}
 
   @Post('about')
@@ -21,5 +29,15 @@ export class StudentProfileController {
     @Req() request: AboutRequest,
   ): Promise<{ ok: true }> {
     return await this.updateStudentAbout.execute(principal, aboutCommandFrom(request))
+  }
+
+  @Post('profile-edit')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ProfileEditGuard, AuthenticationGuard)
+  async submitEdit(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Req() request: ProfileEditRequest,
+  ): Promise<{ ok: true }> {
+    return await this.submitProfileEdit.execute(principal, profileEditCommandFrom(request))
   }
 }

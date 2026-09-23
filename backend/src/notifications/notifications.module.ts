@@ -7,6 +7,8 @@ import { NotificationsController } from './notifications.controller.js'
 import { NotificationsRepository } from './notifications.repository.js'
 import { NotificationsRetentionService } from './notifications-retention.service.js'
 import { PrismaNotificationsRepository } from './prisma-notifications.repository.js'
+import { TelegramUserNotificationGateway } from './telegram-user-notification.gateway.js'
+import { UserNotificationGateway } from './user-notification.gateway.js'
 
 @Module({
   imports: [AuthModule, PersistenceModule],
@@ -16,9 +18,14 @@ import { PrismaNotificationsRepository } from './prisma-notifications.repository
     MarkNotificationsReadUseCase,
     NotificationsRetentionService,
     {
+      provide: UserNotificationGateway,
+      useClass: TelegramUserNotificationGateway,
+    },
+    {
       provide: NotificationsRepository,
       useClass: PrismaNotificationsRepository,
     },
   ],
+  exports: [UserNotificationGateway],
 })
 export class NotificationsModule {}

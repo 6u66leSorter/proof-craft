@@ -6,6 +6,7 @@ import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
+import { UserNotificationGateway } from '../src/notifications/user-notification.gateway.js'
 import { createLegacyDatabase } from './support/legacy-database.js'
 
 const botToken = '123456:nest-student-profile-token'
@@ -14,10 +15,12 @@ const teacherWebSessionToken = 'nest-teacher-profile-web-session'
 const studentTelegramId = 7101
 const otherStudentTelegramId = 7102
 const teacherTelegramId = 7201
+const adminTelegramId = 7301
 
 let temporaryRoot: string
 let databasePath: string
 let app: NestFastifyApplication
+const deliveredNotifications: { telegramId: number; message: string }[] = []
 
 const seedStudentProfile = (path: string): void => {
   const db = new Database(path)
@@ -34,10 +37,14 @@ const seedStudentProfile = (path: string): void => {
   const teacherUserId = Number(
     insertUser.run(teacherTelegramId, 'Teacher', 'teacher').lastInsertRowid,
   )
+  const adminUserId = Number(
+    insertUser.run(adminTelegramId, 'Admin', 'admin').lastInsertRowid,
+  )
   const insertRole = db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
   insertRole.run(studentUserId, 'student')
   insertRole.run(otherStudentUserId, 'student')
   insertRole.run(teacherUserId, 'teacher')
+  insertRole.run(adminUserId, 'admin')
 
   const insertStudent = db.prepare(`
     INSERT INTO students
@@ -118,7 +125,14 @@ before(async () => {
   process.env.VITE_TELEGRAM_BOT_TOKEN = ''
   process.env.TG_WEBAPP_AUTH = 'strict'
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    .overrideProvider(UserNotificationGateway)
+    .useValue({
+      send: async (telegramId: number, message: string): Promise<void> => {
+        deliveredNotifications.push({ telegramId, message })
+      },
+    })
+    .compile()
   app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
   await app.init()
   await app.getHttpAdapter().getInstance().ready()
@@ -344,4 +358,237 @@ test('teacher/about одинаково отклоняет unknown и non-teacher
       error: 'Только преподаватель может изменить раздел «Обо мне».',
     })
   }
+})
+
+test('POST /api/student/profile-edit создаёт заявку, аудит и оба уведомления', async () => {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/student/profile-edit',
+    headers: authHeaders(studentTelegramId),
+    payload: {
+      telegram_id: studentTelegramId,
+      full_name: '  Student Updated  ',
+      phone: ' 12345 ',
+      metro: '',
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+
+  const db = new Database(databasePath, { readonly: true })
+  const edit = db.prepare(`
+    SELECT spe.student_id, spe.new_full_name, spe.new_phone, spe.new_metro, spe.status
+    FROM student_profile_edits spe
+    JOIN students s ON s.id = spe.student_id
+    JOIN users u ON u.id = s.user_id
+    WHERE u.telegram_id = ?
+    ORDER BY spe.id DESC LIMIT 1
+  `).get(studentTelegramId)
+  const student = db.prepare(`
+    SELECT s.id, s.full_name, s.phone, s.metro
+    FROM students s JOIN users u ON u.id = s.user_id
+    WHERE u.telegram_id = ?
+  `).get(studentTelegramId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notification = db.prepare(`
+    SELECT n.kind, n.body, n.payload
+    FROM app_notifications n
+    JOIN users u ON u.id = n.user_id
+    WHERE u.telegram_id = ? AND n.kind = 'profile_edit_pending'
+    ORDER BY n.id DESC LIMIT 1
+  `).get(adminTelegramId)
+  db.close()
+
+  const { id: studentId, ...studentProfile } = student as {
+    id: number
+    full_name: string
+    phone: string
+    metro: string | null
+  }
+
+  assert.deepEqual(edit, {
+    student_id: studentId,
+    new_full_name: '  Student Updated  ',
+    new_phone: ' 12345 ',
+    new_metro: null,
+    status: 'pending',
+  })
+  assert.deepEqual(studentProfile, {
+    full_name: 'Student Profile',
+    phone: '+70000000000',
+    metro: null,
+  })
+  assert.deepEqual(audit, {
+    action: 'student_profile_edit_submitted',
+    meta: JSON.stringify({ student_id: studentId }),
+  })
+  const message = 'Ученик Student Profile отправил заявку на изменение профиля.'
+  assert.deepEqual(notification, {
+    kind: 'profile_edit_pending',
+    body: message,
+    payload: JSON.stringify({ student_id: studentId }),
+  })
+  assert.deepEqual(deliveredNotifications, [{ telegramId: adminTelegramId, message }])
+})
+
+test('повторная profile-edit заявка отклоняет предыдущую и поддерживает web-session', async () => {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/student/profile-edit',
+    headers: { 'x-web-session': webSessionToken },
+    payload: {
+      telegram_id: studentTelegramId,
+      full_name: 'Student Latest',
+      phone: '+70000000001',
+      metro: 'Central',
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+
+  const db = new Database(databasePath, { readonly: true })
+  const edits = db.prepare(`
+    SELECT spe.new_full_name, spe.status
+    FROM student_profile_edits spe
+    JOIN students s ON s.id = spe.student_id
+    JOIN users u ON u.id = s.user_id
+    WHERE u.telegram_id = ?
+    ORDER BY spe.id ASC
+  `).all(studentTelegramId)
+  db.close()
+  assert.deepEqual(edits, [
+    { new_full_name: '  Student Updated  ', status: 'rejected' },
+    { new_full_name: 'Student Latest', status: 'pending' },
+  ])
+})
+
+test('profile-edit доступен completed и запрещён в другом статусе', async () => {
+  const completedDb = new Database(databasePath)
+  completedDb.prepare(`
+    UPDATE students SET status = 'completed'
+    WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
+  `).run(otherStudentTelegramId)
+  completedDb.close()
+  const completed = await app.inject({
+    method: 'POST',
+    url: '/api/student/profile-edit',
+    headers: authHeaders(otherStudentTelegramId),
+    payload: {
+      telegram_id: otherStudentTelegramId,
+      full_name: 'Completed Student',
+      phone: '+70000000002',
+    },
+  })
+  assert.equal(completed.statusCode, 200)
+  assert.deepEqual(completed.json(), { ok: true })
+
+  const moderationDb = new Database(databasePath)
+  moderationDb.prepare(`
+    UPDATE students SET status = 'moderation'
+    WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
+  `).run(otherStudentTelegramId)
+  moderationDb.close()
+  const moderation = await app.inject({
+    method: 'POST',
+    url: '/api/student/profile-edit',
+    headers: authHeaders(otherStudentTelegramId),
+    payload: {
+      telegram_id: otherStudentTelegramId,
+      full_name: 'Moderation Student',
+      phone: '+70000000003',
+    },
+  })
+  assert.equal(moderation.statusCode, 403)
+  assert.deepEqual(moderation.json(), {
+    ok: false,
+    error: 'Редактирование профиля недоступно в текущем статусе.',
+  })
+
+  const restoreDb = new Database(databasePath)
+  restoreDb.prepare(`
+    UPDATE students SET status = 'studying'
+    WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
+  `).run(otherStudentTelegramId)
+  restoreDb.close()
+})
+
+test('profile-edit сохраняет validation, auth и role ошибки', async (context) => {
+  const validBody = {
+    telegram_id: studentTelegramId,
+    full_name: 'Student Profile',
+    phone: '+70000000000',
+  }
+  for (const [name, bodyPatch] of [
+    ['короткое имя', { full_name: 'S' }],
+    ['короткий телефон', { phone: '1234' }],
+    ['длинное метро', { metro: 'x'.repeat(81) }],
+  ] as const) {
+    await context.test(name, async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/student/profile-edit',
+        headers: authHeaders(studentTelegramId),
+        payload: { ...validBody, ...bodyPatch },
+      })
+      assert.equal(response.statusCode, 400)
+      assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+    })
+  }
+
+  await context.test('validation выполняется до credential', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/student/profile-edit',
+      payload: { ...validBody, full_name: 'S' },
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/student/profile-edit',
+      payload: validBody,
+    })
+    assert.equal(response.statusCode, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/student/profile-edit',
+      headers: authHeaders(otherStudentTelegramId),
+      payload: validBody,
+    })
+    assert.equal(response.statusCode, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const unknownTelegramId = 9999
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/student/profile-edit',
+      headers: authHeaders(unknownTelegramId),
+      payload: { ...validBody, telegram_id: unknownTelegramId },
+    })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не ученик', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/student/profile-edit',
+      headers: authHeaders(teacherTelegramId),
+      payload: { ...validBody, telegram_id: teacherTelegramId },
+    })
+    assert.equal(response.statusCode, 403)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Только ученики могут редактировать профиль.',
+    })
+  })
 })

@@ -83,7 +83,7 @@
 | --- | --- | --- | --- | --- | --- |
 | POST | `/api/student/about` | Telegram, VK или web-session с существующим student | Trim описания до 1000 символов; пустое значение сохраняется как `NULL` | medium | nest-ready |
 | POST | `/api/teacher/about` | Telegram, VK или web-session с существующим teacher | Trim описания до 1000 символов; пустое значение сохраняется как `NULL` | medium | nest-ready |
-| POST | `/api/student/profile-edit` | ученик `studying/completed` | Заявка на изменение профиля | high | legacy |
+| POST | `/api/student/profile-edit` | Telegram, VK или web-session; student `studying/completed` | Атомарная замена pending-заявки, аудит, app- и best-effort Telegram-уведомления администраторам | high | nest-ready |
 | POST | `/api/student/me/avatar` | Telegram, VK или web-session с существующим student | Multipart-загрузка, JPEG-нормализация и безопасная замена аватара | high | nest-ready |
 | GET | `/api/student/me/avatar` | Telegram, VK или web-session с существующим student | Собственный локальный аватар с private cache | medium | nest-ready |
 | GET | `/api/students/:student_id/avatar` | владелец, назначенный преподаватель или администратор | Ролевой доступ к локальному аватару с private cache | high | nest-ready |
