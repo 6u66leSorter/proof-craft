@@ -1,6 +1,6 @@
 # Proof Craft backend
 
-Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления и чтение работ ученика; production routing пока остаётся на legacy.
+Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления, чтение работ ученика и авторизованный основной файл работы; production routing пока остаётся на legacy.
 
 ## Команды
 
@@ -47,6 +47,8 @@ DATABASE_URL=file:/absolute/path/to/barber.db npm run backend:start
 `GET /api/notifications` и `POST /api/notifications/read` требуют общий credential и не доверяют `telegram_id` как identity. Чтение и отметка одной/всех записей ограничены внутренним user ID. Лимит `1..80`, unread-счётчик, JSON payload, идемпотентная отметка и почасовая retention-очистка совместимы с legacy.
 
 `GET /api/student/homeworks` возвращает только работы student-профиля, связанного с проверенным principal. Ответ сохраняет legacy-сортировку (`pending` сверху), все проверки и комментарии, последнюю проверку, вложения, признаки local/Telegram-файлов и рейтинг по `approved`-оценкам.
+
+`GET /api/homeworks/:id/file` проверяет владельца, назначение преподавателя или роль администратора по проверенному principal. Общий storage adapter безопасно открывает local/Telegram-файл и создаёт JPEG-preview фото; форма ошибок и заголовки совместимы с legacy.
 
 Безопасные команды:
 

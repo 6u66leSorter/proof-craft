@@ -54,7 +54,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `GET /api/notifications` реализован в NestJS с общей identity-границей, изоляцией user ID, JSON payload, unread-счётчиком и retention-сервисом.
 - `POST /api/notifications/read` реализован в NestJS: поддерживает точечную и массовую идемпотентную отметку только своих уведомлений через Prisma repository.
 - `GET /api/student/homeworks` реализован в NestJS: identity ограничивает выборку внутренним student-профилем, агрегат сохраняет сортировку, проверки, комментарии, вложения и рейтинг legacy API.
-- Следующий маршрут — `GET /api/homeworks/:id/file`: авторизованная выдача основного файла владельцу, назначенному преподавателю или администратору.
+- `GET /api/homeworks/:id/file` реализован в NestJS: основной local/Telegram-файл и JPEG-preview доступны только владельцу, назначенному преподавателю или администратору.
+- Следующий маршрут — `GET /api/homeworks/:homeworkId/revision/file`: файл исправления с той же матрицей доступа.
 
 ### 5. Вывод legacy и миграция СУБД
 

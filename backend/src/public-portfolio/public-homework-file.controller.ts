@@ -1,8 +1,6 @@
 import {
   Controller,
   Get,
-  HttpException,
-  HttpStatus,
   Inject,
   Param,
   Query,
@@ -10,20 +8,12 @@ import {
   StreamableFile,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
+import { parsePreviewQuery } from '../common/parse-preview-query.js'
 import { parsePositiveId } from '../common/parse-positive-id.js'
 import {
   GetPublicHomeworkFileUseCase,
   type PublicFileResponse,
 } from './get-public-homework-file.use-case.js'
-
-const parsePreview = (value: string | undefined): boolean => {
-  if (value == null) return false
-  if (value === '1' || value === 'true') return true
-  throw new HttpException(
-    { ok: false, error: 'Некорректные параметры запроса.' },
-    HttpStatus.BAD_REQUEST,
-  )
-}
 
 @Controller(['api/guest/homeworks', 'guest/homeworks'])
 export class PublicHomeworkFileController {
@@ -40,7 +30,7 @@ export class PublicHomeworkFileController {
   ): Promise<StreamableFile> {
     const file = await this.getPublicHomeworkFile.execute(
       parsePositiveId(homeworkId),
-      parsePreview(preview),
+      parsePreviewQuery(preview),
     )
     return this.stream(reply, file)
   }
@@ -55,7 +45,7 @@ export class PublicHomeworkFileController {
     const file = await this.getPublicHomeworkFile.executeAttachment(
       parsePositiveId(homeworkId),
       parsePositiveId(attachmentId),
-      parsePreview(preview),
+      parsePreviewQuery(preview),
     )
     return this.stream(reply, file)
   }

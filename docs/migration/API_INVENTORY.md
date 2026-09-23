@@ -61,7 +61,7 @@
 | POST | `/api/student/homeworks/:homeworkId/revision` | владелец revision-работы | Исправление и возврат в pending | high | legacy |
 | POST | `/api/homeworks/:id/comments` | ученик, назначенный преподаватель или администратор | Комментарий и уведомления | high | legacy |
 | POST | `/api/teacher/review` | назначенный преподаватель или администратор | Проверка, статус, рейтинг, чат, уведомления, feedback invite | high | legacy |
-| GET | `/api/homeworks/:id/file` | имеющий доступ к работе | Основной локальный/Telegram-файл | high | legacy |
+| GET | `/api/homeworks/:id/file` | владелец, назначенный преподаватель или администратор | Основной local/Telegram-файл и JPEG-preview после проверки доступа | high | nest-ready |
 | GET | `/api/homeworks/:homeworkId/revision/file` | имеющий доступ к работе | Файл исправления | high | legacy |
 | GET | `/api/homeworks/:homeworkId/attachments/:attachmentId/file` | имеющий доступ к работе | Дополнительное вложение | high | legacy |
 
