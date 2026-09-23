@@ -176,11 +176,15 @@ const seedLegacyDatabase = (databasePath) => {
   const localAttachmentId = Number(db.prepare(`
     INSERT INTO homework_files (homework_id, file_id, content_type, sort_order, created_at)
     VALUES (?, ?, 'photo', 0, '2026-09-20 12:10:00')
-  `).run(approvedHomeworkId, approvedFilePath).lastInsertRowid)
+  `).run(approvedHomeworkId, revisionFilePath).lastInsertRowid)
   const telegramAttachmentId = Number(db.prepare(`
     INSERT INTO homework_files (homework_id, file_id, content_type, sort_order, created_at)
     VALUES (?, 'telegram_attachment_file_12345', 'photo', 1, '2026-09-20 12:20:00')
   `).run(approvedHomeworkId).lastInsertRowid)
+  const secondStudentAttachmentId = Number(db.prepare(`
+    INSERT INTO homework_files (homework_id, file_id, content_type, sort_order, created_at)
+    VALUES (?, ?, 'document', 0, '2026-09-20 12:30:00')
+  `).run(secondStudentHomeworkId, secondStudentFilePath).lastInsertRowid)
   const studentCommentId = Number(db.prepare(`
     INSERT INTO homework_comments (homework_id, author_user_id, text_content, created_at)
     VALUES (?, ?, 'Спасибо за обратную связь', '2026-09-21 14:00:00')
@@ -247,6 +251,7 @@ const seedLegacyDatabase = (databasePath) => {
     revisionReviewId,
     localAttachmentId,
     telegramAttachmentId,
+    secondStudentAttachmentId,
     studentCommentId,
     teacherCommentId,
     approvedFilePath,
@@ -1172,6 +1177,121 @@ test('файл исправления сохраняет validation, auth и not
   await context.test('подписанный неизвестный пользователь не получает файл', async () => {
     const { response, body } = await getJson(
       `/api/homeworks/${fixtureIds.revisionHomeworkId}/revision/file?telegram_id=9999`,
+      9999,
+    )
+    assert.equal(response.status, 403)
+    assert.deepEqual(body, { ok: false, error: 'Нет доступа к этому файлу.' })
+  })
+})
+
+test('владелец, назначенный преподаватель и администратор читают вложение работы', async () => {
+  const path = `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=`
+  for (const telegramId of [3001, 2001, 1001]) {
+    const response = await getResponse(`${path}${telegramId}`, telegramId)
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('content-type'), 'image/jpeg')
+    assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
+    assert.equal(await response.text(), testImageSvg)
+  }
+})
+
+test('авторизованное вложение поддерживает preview и web-session', async () => {
+  const preview = await getResponse(
+    `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=3001&preview=1`,
+    3001,
+  )
+  assert.equal(preview.status, 200)
+  assert.equal(preview.headers.get('content-type'), 'image/jpeg')
+  assert.deepEqual([...new Uint8Array(await preview.arrayBuffer()).slice(0, 2)], [0xff, 0xd8])
+
+  const webResponse = await fetch(
+    `${baseUrl}/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=3001`,
+    { headers: { 'X-Web-Session': testWebSessionToken } },
+  )
+  assert.equal(webResponse.status, 200)
+  assert.equal(await webResponse.text(), testImageSvg)
+})
+
+test('посторонний ученик и неназначенный преподаватель не читают вложение', async () => {
+  const student = await getJson(
+    `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=3002`,
+    3002,
+  )
+  assert.equal(student.response.status, 403)
+  assert.deepEqual(student.body, { ok: false, error: 'Нет доступа к этому файлу.' })
+
+  const teacher = await getJson(
+    `/api/homeworks/${fixtureIds.secondStudentHomeworkId}/attachments/${fixtureIds.secondStudentAttachmentId}/file?telegram_id=2001`,
+    2001,
+  )
+  assert.equal(teacher.response.status, 403)
+  assert.deepEqual(teacher.body, { ok: false, error: 'Нет доступа к этому файлу.' })
+})
+
+test('авторизованное вложение сохраняет validation, auth и not-found ошибки', async (context) => {
+  await context.test('некорректный homework id', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/nope/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=3001`,
+      3001,
+    )
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('некорректный attachment id', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/nope/file?telegram_id=3001`,
+      3001,
+    )
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('вложение не принадлежит работе из URL', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/${fixtureIds.pendingHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=3001`,
+      3001,
+    )
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Вложение не найдено.' })
+  })
+
+  await context.test('вложение не существует', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/999999/file?telegram_id=3001`,
+      3001,
+    )
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Вложение не найдено.' })
+  })
+
+  await context.test('некорректный preview', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=3001&preview=0`,
+      3001,
+    )
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await getJson(
+      `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=3001`,
+    )
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await getJson(
+      `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=3001`,
+      3002,
+    )
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('подписанный неизвестный пользователь не получает вложение', async () => {
+    const { response, body } = await getJson(
+      `/api/homeworks/${fixtureIds.approvedHomeworkId}/attachments/${fixtureIds.localAttachmentId}/file?telegram_id=9999`,
       9999,
     )
     assert.equal(response.status, 403)

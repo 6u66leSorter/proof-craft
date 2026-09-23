@@ -1,9 +1,17 @@
-export type HomeworkFileAccess = {
+export type HomeworkAccess = {
+  isOwner: boolean
+  isAssignedTeacher: boolean
+}
+
+export type HomeworkFileAccess = HomeworkAccess & {
   fileId: string | null
   revisionFileId: string | null
   contentType: string
-  isOwner: boolean
-  isAssignedTeacher: boolean
+}
+
+export type HomeworkAttachmentAccess = HomeworkAccess & {
+  fileId: string
+  contentType: string
 }
 
 export abstract class HomeworkFileRepository {
@@ -11,4 +19,10 @@ export abstract class HomeworkFileRepository {
     homeworkId: number,
     userId: number | null,
   ): Promise<HomeworkFileAccess | null>
+
+  abstract findAttachmentAccess(
+    homeworkId: number,
+    attachmentId: number,
+    userId: number | null,
+  ): Promise<HomeworkAttachmentAccess | null>
 }

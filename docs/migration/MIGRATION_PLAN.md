@@ -56,7 +56,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `GET /api/student/homeworks` реализован в NestJS: identity ограничивает выборку внутренним student-профилем, агрегат сохраняет сортировку, проверки, комментарии, вложения и рейтинг legacy API.
 - `GET /api/homeworks/:id/file` реализован в NestJS: основной local/Telegram-файл и JPEG-preview доступны только владельцу, назначенному преподавателю или администратору.
 - `GET /api/homeworks/:homeworkId/revision/file` реализован в том же модуле: файл исправления переиспользует access boundary, local/Telegram storage и preview.
-- Следующий маршрут — `GET /api/homeworks/:homeworkId/attachments/:attachmentId/file`: авторизованное дополнительное вложение с проверкой принадлежности работе.
+- `GET /api/homeworks/:homeworkId/attachments/:attachmentId/file` реализован в том же модуле: вложение обязано принадлежать работе, а доступ, local/Telegram storage и photo preview переиспользуют общие границы.
+- Следующий маршрут — `GET /api/student/me/avatar`: собственный аватар ученика через общую identity- и storage-логику.
 
 ### 5. Вывод legacy и миграция СУБД
 

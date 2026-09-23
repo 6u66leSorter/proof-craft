@@ -63,7 +63,7 @@
 | POST | `/api/teacher/review` | назначенный преподаватель или администратор | Проверка, статус, рейтинг, чат, уведомления, feedback invite | high | legacy |
 | GET | `/api/homeworks/:id/file` | владелец, назначенный преподаватель или администратор | Основной local/Telegram-файл и JPEG-preview после проверки доступа | high | nest-ready |
 | GET | `/api/homeworks/:homeworkId/revision/file` | владелец, назначенный преподаватель или администратор | Local/Telegram-файл исправления и JPEG-preview после проверки доступа | high | nest-ready |
-| GET | `/api/homeworks/:homeworkId/attachments/:attachmentId/file` | имеющий доступ к работе | Дополнительное вложение | high | legacy |
+| GET | `/api/homeworks/:homeworkId/attachments/:attachmentId/file` | владелец, назначенный преподаватель или администратор | Принадлежащее работе дополнительное вложение, local/Telegram-файл и JPEG-preview фото | high | nest-ready |
 
 ## Публичное портфолио и витрина
 

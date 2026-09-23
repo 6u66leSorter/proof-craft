@@ -5,7 +5,7 @@ import { contentTypeToMime } from '../storage/content-type-to-mime.js'
 import { FileReferenceService } from '../storage/file-reference.service.js'
 import {
   HomeworkFileRepository,
-  type HomeworkFileAccess,
+  type HomeworkAccess,
 } from './homework-file.repository.js'
 
 export type HomeworkFileResponse = {
@@ -58,6 +58,31 @@ export class GetHomeworkFileUseCase {
     return await this.openFile(access.revisionFileId, preview, 'image/jpeg')
   }
 
+  async executeAttachment(
+    principal: AuthenticatedPrincipal,
+    homeworkId: number,
+    attachmentId: number,
+    preview: boolean,
+  ): Promise<HomeworkFileResponse> {
+    const access = await this.homeworks.findAttachmentAccess(
+      homeworkId,
+      attachmentId,
+      principal.user?.id ?? null,
+    )
+    if (!access) {
+      throw new HttpException(
+        { ok: false, error: 'Вложение не найдено.' },
+        HttpStatus.NOT_FOUND,
+      )
+    }
+    this.assertAccess(principal, access)
+    return await this.openFile(
+      access.fileId,
+      preview && access.contentType === 'photo',
+      contentTypeToMime(access.contentType),
+    )
+  }
+
   private async openFile(
     fileId: string | null,
     imagePreview: boolean,
@@ -78,7 +103,7 @@ export class GetHomeworkFileUseCase {
 
   private assertAccess(
     principal: AuthenticatedPrincipal,
-    access: HomeworkFileAccess,
+    access: HomeworkAccess,
   ): void {
     const isAdmin = principal.user?.roles.includes('admin') ?? false
     if (isAdmin || access.isOwner || access.isAssignedTeacher) return

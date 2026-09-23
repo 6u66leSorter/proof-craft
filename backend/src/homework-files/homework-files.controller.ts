@@ -57,6 +57,23 @@ export class HomeworkFilesController {
     return this.stream(reply, file)
   }
 
+  @Get(':homeworkId/attachments/:attachmentId/file')
+  async showAttachmentFile(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param('homeworkId') homeworkId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Query('preview') preview: unknown,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<StreamableFile> {
+    const file = await this.getHomeworkFile.executeAttachment(
+      principal,
+      parsePositiveId(homeworkId),
+      parsePositiveId(attachmentId),
+      parsePreviewQuery(preview),
+    )
+    return this.stream(reply, file)
+  }
+
   private stream(reply: FastifyReply, file: HomeworkFileResponse): StreamableFile {
     reply.header('Cross-Origin-Resource-Policy', 'cross-origin')
     reply.type(file.contentType)
