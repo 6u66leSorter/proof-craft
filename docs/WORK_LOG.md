@@ -16,10 +16,18 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-23 — Перенос описания профиля преподавателя
+
+- **Цель:** перенести `POST /api/teacher/about`, сохранив контракт и не дублируя профильную архитектуру ученика.
+- **Сделано:** student-профильный модуль обобщён до `ProfilesModule` с общими body parser/guard и Prisma repository, но отдельными student/teacher controllers и use cases. Teacher определяется по внутреннему user ID проверенного principal; описание ограничено 1000 символами, обрезается, пустое значение хранится как `NULL`. Сохранены legacy-порядок validation до credential и точный текст ролевой ошибки.
+- **Проверка:** legacy — 122 успешных теста и 4 целевых TODO; NestJS — 164 успешных теста. Проверены Telegram/web-session, nginx-путь, trim, очистка, `updated_at`, отсутствие изменений student-профиля, лимит длины и ошибки `400/401/403`; прошли typecheck и полный набор backend e2e-тестов.
+- **Вывод:** маршрут имеет статус `nest-ready`; теперь готовы 20 из 58 маршрутов, ещё 36 остаются на legacy и 2 покрыты characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/student/profile-edit` как создание заявки на изменение профиля.
+
 ### 2026-09-23 — Перенос описания профиля ученика
 
 - **Цель:** перенести `POST /api/student/about`, сохранив валидацию, identity boundary и точную семантику пустого описания.
-- **Сделано:** добавлен отдельный `StudentProfileModule` с body guard, тонким controller, application use case и Prisma repository. Описание ограничено 1000 символами, обрезается перед записью, пустое значение хранится как `NULL`; обновляется только student-профиль внутреннего user ID проверенного principal. Сохранён legacy-порядок, при котором body validation выполняется до credential-проверки.
+- **Сделано:** добавлен профильный модуль с body guard, тонким controller, application use case и Prisma repository. Описание ограничено 1000 символами, обрезается перед записью, пустое значение хранится как `NULL`; обновляется только student-профиль внутреннего user ID проверенного principal. Сохранён legacy-порядок, при котором body validation выполняется до credential-проверки. На следующем этапе модуль обобщён до `ProfilesModule` для student и teacher.
 - **Проверка:** legacy — 113 успешных тестов и 4 целевых TODO; NestJS — 154 успешных теста. Проверены Telegram/web-session, nginx-путь, trim, очистка, `updated_at`, изоляция другого ученика, лимит длины и ошибки `400/401/403`; прошли typecheck и целевые e2e-тесты.
 - **Вывод:** маршрут имеет статус `nest-ready`; теперь готовы 19 из 58 маршрутов, ещё 37 остаются на legacy и 2 покрыты characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
 - **Следующий шаг:** перенести `POST /api/teacher/about`, переиспользуя профильный модуль и общий identity boundary.

@@ -82,7 +82,7 @@
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
 | POST | `/api/student/about` | Telegram, VK или web-session с существующим student | Trim описания до 1000 символов; пустое значение сохраняется как `NULL` | medium | nest-ready |
-| POST | `/api/teacher/about` | преподаватель | Изменение `about_me` | medium | legacy |
+| POST | `/api/teacher/about` | Telegram, VK или web-session с существующим teacher | Trim описания до 1000 символов; пустое значение сохраняется как `NULL` | medium | nest-ready |
 | POST | `/api/student/profile-edit` | ученик `studying/completed` | Заявка на изменение профиля | high | legacy |
 | POST | `/api/student/me/avatar` | Telegram, VK или web-session с существующим student | Multipart-загрузка, JPEG-нормализация и безопасная замена аватара | high | nest-ready |
 | GET | `/api/student/me/avatar` | Telegram, VK или web-session с существующим student | Собственный локальный аватар с private cache | medium | nest-ready |

@@ -20,6 +20,7 @@ let serverOutput = ''
 const testBotToken = '123456:test-contract-token'
 const testVkSecret = 'legacy-contract-vk-secret'
 const testWebSessionToken = 'legacy-contract-web-session'
+const testTeacherWebSessionToken = 'legacy-contract-teacher-web-session'
 const testImageSvg =
   '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="red"/></svg>'
 
@@ -235,6 +236,13 @@ const seedLegacyDatabase = (databasePath) => {
   `).run(
     studentOneUserId,
     crypto.createHash('sha256').update(testWebSessionToken).digest('hex'),
+  )
+  db.prepare(`
+    INSERT INTO web_sessions (user_id, token_hash, expires_at)
+    VALUES (?, ?, datetime('now', '+1 day'))
+  `).run(
+    teacherUserId,
+    crypto.createHash('sha256').update(testTeacherWebSessionToken).digest('hex'),
   )
 
   db.close()
@@ -1327,6 +1335,98 @@ test('POST /api/student/about сохраняет validation, auth и role оши
       assert.deepEqual(body, {
         ok: false,
         error: 'Только ученик может изменить раздел «Обо мне».',
+      })
+    })
+  }
+})
+
+test('POST /api/teacher/about сохраняет trimmed-описание и очищает его пустой строкой', async () => {
+  const updated = await postJson(
+    '/api/teacher/about',
+    { telegram_id: 2001, about_me: '  Новое описание преподавателя  ' },
+    2001,
+  )
+  assert.equal(updated.response.status, 200)
+  assert.deepEqual(updated.body, { ok: true })
+
+  const updatedSession = await getJson('/api/session?telegram_id=2001', 2001)
+  assert.equal(updatedSession.body.data.teacher.about_me, 'Новое описание преподавателя')
+
+  const cleared = await postJson(
+    '/api/teacher/about',
+    { telegram_id: 2001, about_me: '   ' },
+    2001,
+  )
+  assert.equal(cleared.response.status, 200)
+  assert.deepEqual(cleared.body, { ok: true })
+
+  const clearedSession = await getJson('/api/session?telegram_id=2001', 2001)
+  assert.equal(clearedSession.body.data.teacher.about_me, '')
+})
+
+test('POST /api/teacher/about поддерживает web-session', async () => {
+  const response = await fetch(`${baseUrl}/api/teacher/about`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Web-Session': testTeacherWebSessionToken,
+    },
+    body: JSON.stringify({ telegram_id: 2001, about_me: 'Через web-session' }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+
+  await postJson('/api/teacher/about', { telegram_id: 2001, about_me: '' }, 2001)
+})
+
+test('POST /api/teacher/about сохраняет validation, auth и role ошибки', async (context) => {
+  await context.test('отсутствует about_me', async () => {
+    const { response, body } = await postJson('/api/teacher/about', { telegram_id: 2001 }, 2001)
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('about_me длиннее 1000 символов', async () => {
+    const { response, body } = await postJson(
+      '/api/teacher/about',
+      { telegram_id: 2001, about_me: 'x'.repeat(1001) },
+      2001,
+    )
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await postJson('/api/teacher/about', {
+      telegram_id: 2001,
+      about_me: 'Описание',
+    })
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await postJson(
+      '/api/teacher/about',
+      { telegram_id: 2001, about_me: 'Описание' },
+      3001,
+    )
+    assert.equal(response.status, 403)
+  })
+
+  for (const [name, telegramId] of [
+    ['пользователь не найден', 9999],
+    ['пользователь не преподаватель', 3001],
+  ]) {
+    await context.test(name, async () => {
+      const { response, body } = await postJson(
+        '/api/teacher/about',
+        { telegram_id: telegramId, about_me: 'Описание' },
+        telegramId,
+      )
+      assert.equal(response.status, 403)
+      assert.deepEqual(body, {
+        ok: false,
+        error: 'Только преподаватель может изменить раздел «Обо мне».',
       })
     })
   }

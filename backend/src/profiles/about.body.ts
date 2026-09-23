@@ -1,15 +1,15 @@
 import type { AuthenticationRequest } from '../auth/auth.types.js'
 import { invalidParameters } from '../common/invalid-parameters.error.js'
 
-export type UpdateStudentAboutCommand = {
+export type UpdateAboutCommand = {
   aboutMe: string | null
 }
 
-export type StudentAboutRequest = AuthenticationRequest & {
-  studentAboutCommand?: UpdateStudentAboutCommand
+export type AboutRequest = AuthenticationRequest & {
+  aboutCommand?: UpdateAboutCommand
 }
 
-export const parseStudentAboutBody = (rawBody: unknown): UpdateStudentAboutCommand => {
+export const parseAboutBody = (rawBody: unknown): UpdateAboutCommand => {
   if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
     return invalidParameters()
   }
@@ -21,6 +21,5 @@ export const parseStudentAboutBody = (rawBody: unknown): UpdateStudentAboutComma
   return { aboutMe: trimmed || null }
 }
 
-export const studentAboutCommandFrom = (
-  request: StudentAboutRequest,
-): UpdateStudentAboutCommand => request.studentAboutCommand ?? invalidParameters()
+export const aboutCommandFrom = (request: AboutRequest): UpdateAboutCommand =>
+  request.aboutCommand ?? invalidParameters()

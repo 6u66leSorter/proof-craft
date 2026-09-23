@@ -10,6 +10,7 @@ import { createLegacyDatabase } from './support/legacy-database.js'
 
 const botToken = '123456:nest-student-profile-token'
 const webSessionToken = 'nest-student-profile-web-session'
+const teacherWebSessionToken = 'nest-teacher-profile-web-session'
 const studentTelegramId = 7101
 const otherStudentTelegramId = 7102
 const teacherTelegramId = 7201
@@ -45,12 +46,21 @@ const seedStudentProfile = (path: string): void => {
   `)
   insertStudent.run(studentUserId, 'Student Profile', 'Исходное описание')
   insertStudent.run(otherStudentUserId, 'Other Student', 'Чужое описание')
-  db.prepare(`INSERT INTO teachers (user_id, full_name) VALUES (?, 'Teacher')`)
-    .run(teacherUserId)
+  db.prepare(`
+    INSERT INTO teachers (user_id, full_name, about_me, updated_at)
+    VALUES (?, 'Teacher', 'Исходное описание преподавателя', '2020-01-01 00:00:00')
+  `).run(teacherUserId)
   db.prepare(`
     INSERT INTO web_sessions (user_id, token_hash, expires_at)
     VALUES (?, ?, datetime('now', '+1 day'))
   `).run(studentUserId, crypto.createHash('sha256').update(webSessionToken).digest('hex'))
+  db.prepare(`
+    INSERT INTO web_sessions (user_id, token_hash, expires_at)
+    VALUES (?, ?, datetime('now', '+1 day'))
+  `).run(
+    teacherUserId,
+    crypto.createHash('sha256').update(teacherWebSessionToken).digest('hex'),
+  )
   db.close()
 }
 
@@ -79,6 +89,18 @@ const readStudent = (telegramId: number): { about_me: string | null; updated_at:
     SELECT s.about_me, s.updated_at
     FROM students s
     JOIN users u ON u.id = s.user_id
+    WHERE u.telegram_id = ?
+  `).get(telegramId) as { about_me: string | null; updated_at: string }
+  db.close()
+  return row
+}
+
+const readTeacher = (telegramId: number): { about_me: string | null; updated_at: string } => {
+  const db = new Database(databasePath, { readonly: true })
+  const row = db.prepare(`
+    SELECT t.about_me, t.updated_at
+    FROM teachers t
+    JOIN users u ON u.id = t.user_id
     WHERE u.telegram_id = ?
   `).get(telegramId) as { about_me: string | null; updated_at: string }
   db.close()
@@ -211,6 +233,115 @@ test('изменение описания одинаково отклоняет 
     assert.deepEqual(response.json(), {
       ok: false,
       error: 'Только ученик может изменить раздел «Обо мне».',
+    })
+  }
+})
+
+test('POST /api/teacher/about сохраняет trimmed-описание через Prisma', async () => {
+  const studentAboutBefore = readStudent(studentTelegramId).about_me
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/teacher/about',
+    headers: authHeaders(teacherTelegramId),
+    payload: { telegram_id: teacherTelegramId, about_me: '  Новое описание преподавателя  ' },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+  const teacher = readTeacher(teacherTelegramId)
+  assert.equal(teacher.about_me, 'Новое описание преподавателя')
+  assert.notEqual(teacher.updated_at, '2020-01-01 00:00:00')
+  assert.equal(readStudent(studentTelegramId).about_me, studentAboutBefore)
+})
+
+test('POST /api/teacher/about сохраняет пустое описание как NULL', async () => {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/teacher/about',
+    headers: authHeaders(teacherTelegramId),
+    payload: { telegram_id: teacherTelegramId, about_me: '   ' },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+  assert.equal(readTeacher(teacherTelegramId).about_me, null)
+})
+
+test('изменение описания преподавателя поддерживает web-session и nginx-путь', async () => {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/teacher/about',
+    headers: { 'x-web-session': teacherWebSessionToken },
+    payload: { telegram_id: teacherTelegramId, about_me: 'Через web-session' },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+  assert.equal(readTeacher(teacherTelegramId).about_me, 'Через web-session')
+})
+
+test('изменение описания преподавателя сохраняет validation и порядок auth ошибок', async (context) => {
+  await context.test('about_me отсутствует', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/teacher/about',
+      headers: authHeaders(teacherTelegramId),
+      payload: { telegram_id: teacherTelegramId },
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('about_me длиннее 1000 символов', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/teacher/about',
+      headers: authHeaders(teacherTelegramId),
+      payload: { telegram_id: teacherTelegramId, about_me: 'x'.repeat(1001) },
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('validation выполняется до проверки credential', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/teacher/about',
+      payload: { telegram_id: teacherTelegramId },
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/teacher/about',
+      payload: { telegram_id: teacherTelegramId, about_me: 'Описание' },
+    })
+    assert.equal(response.statusCode, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/teacher/about',
+      headers: authHeaders(studentTelegramId),
+      payload: { telegram_id: teacherTelegramId, about_me: 'Описание' },
+    })
+    assert.equal(response.statusCode, 403)
+  })
+})
+
+test('teacher/about одинаково отклоняет unknown и non-teacher пользователей', async () => {
+  for (const telegramId of [9999, studentTelegramId]) {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/teacher/about',
+      headers: authHeaders(telegramId),
+      payload: { telegram_id: telegramId, about_me: 'Описание' },
+    })
+    assert.equal(response.statusCode, 403)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Только преподаватель может изменить раздел «Обо мне».',
     })
   }
 })

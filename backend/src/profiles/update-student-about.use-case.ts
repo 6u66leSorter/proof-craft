@@ -1,8 +1,8 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common'
 import type { AuthenticatedPrincipal } from '../auth/auth.types.js'
 import { sqliteTimestamp } from '../common/sqlite-timestamp.js'
-import type { UpdateStudentAboutCommand } from './student-about.body.js'
-import { StudentProfileRepository } from './student-profile.repository.js'
+import type { UpdateAboutCommand } from './about.body.js'
+import { ProfilesRepository } from './profiles.repository.js'
 
 const studentOnlyError = (): HttpException =>
   new HttpException(
@@ -13,16 +13,16 @@ const studentOnlyError = (): HttpException =>
 @Injectable()
 export class UpdateStudentAboutUseCase {
   constructor(
-    @Inject(StudentProfileRepository)
-    private readonly students: StudentProfileRepository,
+    @Inject(ProfilesRepository)
+    private readonly profiles: ProfilesRepository,
   ) {}
 
   async execute(
     principal: AuthenticatedPrincipal,
-    command: UpdateStudentAboutCommand,
+    command: UpdateAboutCommand,
   ): Promise<{ ok: true }> {
     if (!principal.user) throw studentOnlyError()
-    const updated = await this.students.updateAbout(
+    const updated = await this.profiles.updateStudentAbout(
       principal.user.id,
       command.aboutMe,
       sqliteTimestamp(),
