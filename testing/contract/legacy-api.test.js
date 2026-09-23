@@ -1238,6 +1238,100 @@ test('загрузка аватара поддерживает web-session', asy
   assert.deepEqual(await response.json(), { ok: true })
 })
 
+test('POST /api/student/about сохраняет trimmed-описание и очищает его пустой строкой', async () => {
+  const updated = await postJson(
+    '/api/student/about',
+    { telegram_id: 3001, about_me: '  Новое описание ученика  ' },
+    3001,
+  )
+  assert.equal(updated.response.status, 200)
+  assert.deepEqual(updated.body, { ok: true })
+
+  const updatedSession = await getJson('/api/session?telegram_id=3001', 3001)
+  assert.equal(updatedSession.body.data.student.about_me, 'Новое описание ученика')
+
+  const cleared = await postJson(
+    '/api/student/about',
+    { telegram_id: 3001, about_me: '   ' },
+    3001,
+  )
+  assert.equal(cleared.response.status, 200)
+  assert.deepEqual(cleared.body, { ok: true })
+
+  const clearedSession = await getJson('/api/session?telegram_id=3001', 3001)
+  assert.equal(clearedSession.body.data.student.about_me, '')
+
+  await postJson('/api/student/about', { telegram_id: 3001, about_me: 'О студенте' }, 3001)
+})
+
+test('POST /api/student/about поддерживает web-session', async () => {
+  const response = await fetch(`${baseUrl}/api/student/about`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Web-Session': testWebSessionToken,
+    },
+    body: JSON.stringify({ telegram_id: 3001, about_me: 'Через web-session' }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+
+  await postJson('/api/student/about', { telegram_id: 3001, about_me: 'О студенте' }, 3001)
+})
+
+test('POST /api/student/about сохраняет validation, auth и role ошибки', async (context) => {
+  await context.test('отсутствует about_me', async () => {
+    const { response, body } = await postJson('/api/student/about', { telegram_id: 3001 }, 3001)
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('about_me длиннее 1000 символов', async () => {
+    const { response, body } = await postJson(
+      '/api/student/about',
+      { telegram_id: 3001, about_me: 'x'.repeat(1001) },
+      3001,
+    )
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await postJson('/api/student/about', {
+      telegram_id: 3001,
+      about_me: 'Описание',
+    })
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await postJson(
+      '/api/student/about',
+      { telegram_id: 3001, about_me: 'Описание' },
+      3002,
+    )
+    assert.equal(response.status, 403)
+  })
+
+  for (const [name, telegramId] of [
+    ['пользователь не найден', 9999],
+    ['пользователь не ученик', 2001],
+  ]) {
+    await context.test(name, async () => {
+      const { response, body } = await postJson(
+        '/api/student/about',
+        { telegram_id: telegramId, about_me: 'Описание' },
+        telegramId,
+      )
+      assert.equal(response.status, 403)
+      assert.deepEqual(body, {
+        ok: false,
+        error: 'Только ученик может изменить раздел «Обо мне».',
+      })
+    })
+  }
+})
+
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {
   const studentsResult = await getJson('/api/guest/portfolio-students')
   const student = studentsResult.body.data.students.find((item) => item.full_name === 'Анна Ученица')

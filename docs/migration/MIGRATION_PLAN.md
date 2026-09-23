@@ -60,7 +60,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `GET /api/student/me/avatar` реализован в отдельном StudentAvatarsModule: student определяется по внутреннему user ID проверенного principal, а файл безопасно открывается общим storage adapter.
 - `GET /api/students/:student_id/avatar` реализован в том же модуле: доступ разрешён владельцу, назначенному преподавателю и администратору по внутреннему user ID.
 - `POST /api/student/me/avatar` реализован в том же модуле: multipart-поток ограничивается общей настройкой, изображение приводится к JPEG 400×400, а замена файла выполняется без потери прежнего аватара при сбое.
-- Следующий маршрут — `POST /api/student/about`: изменение описания собственного student-профиля через identity boundary.
+- `POST /api/student/about` реализован в отдельном StudentProfileModule: body валидируется до credential по legacy-контракту, use case принимает проверенный principal, а Prisma repository обновляет только связанный с ним student-профиль.
+- Следующий маршрут — `POST /api/teacher/about`: симметричное изменение описания teacher-профиля через тот же identity boundary.
 
 ### 5. Вывод legacy и миграция СУБД
 
