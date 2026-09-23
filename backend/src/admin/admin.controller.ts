@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Req, UseGuards } from '@nestjs/common'
+import { Controller, Get, HttpCode, Inject, Post, Req, UseGuards } from '@nestjs/common'
 import { AuthenticationGuard } from '../auth/authentication.guard.js'
 import { CurrentPrincipal } from '../auth/current-principal.decorator.js'
 import type { AuthenticatedPrincipal } from '../auth/auth.types.js'
@@ -20,6 +20,12 @@ import {
   ListAdminTeacherApplicationsUseCase,
   ListAdminTeachersUseCase,
 } from './admin-read.use-cases.js'
+import {
+  adminStudentModerationCommandFrom,
+  type AdminStudentModerationRequest,
+} from './admin-student-moderation.body.js'
+import { AdminStudentModerationGuard } from './admin-student-moderation.guard.js'
+import { ModerateAdminStudentUseCase } from './moderate-admin-student.use-case.js'
 
 @Controller(['api/admin', 'admin'])
 export class AdminController {
@@ -38,6 +44,8 @@ export class AdminController {
     private readonly homeworks: ListAdminHomeworksUseCase,
     @Inject(ListAdminAuditUseCase)
     private readonly audit: ListAdminAuditUseCase,
+    @Inject(ModerateAdminStudentUseCase)
+    private readonly moderateStudent: ModerateAdminStudentUseCase,
   ) {}
 
   @Get('teacher-applications')
@@ -74,6 +82,19 @@ export class AdminController {
     return await this.students.execute(
       principal,
       request.adminStudentStatus ?? invalidParameters(),
+    )
+  }
+
+  @Post('students')
+  @HttpCode(200)
+  @UseGuards(AdminStudentModerationGuard, AuthenticationGuard)
+  async moderate(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Req() request: AdminStudentModerationRequest,
+  ): Promise<{ ok: true }> {
+    return await this.moderateStudent.execute(
+      principal,
+      adminStudentModerationCommandFrom(request),
     )
   }
 

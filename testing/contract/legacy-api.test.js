@@ -390,6 +390,22 @@ const createPendingHomework = ({ studentId, lessonNumber, isBonus = 0 }) => {
   return id
 }
 
+const createModerationStudent = (telegramId = 0) => {
+  const db = new Database(legacyDatabasePath)
+  const userId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, 'Новый', 'Ученик', 'student')
+  `).run(telegramId).lastInsertRowid)
+  db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)').run(userId, 'student')
+  const studentId = Number(db.prepare(`
+    INSERT INTO students
+      (user_id, full_name, phone, lessons_count, status)
+    VALUES (?, 'Новый Ученик', '+79990000999', 10, 'moderation')
+  `).run(userId).lastInsertRowid)
+  db.close()
+  return { userId, studentId }
+}
+
 let fixtureIds
 
 before(async () => {
@@ -1860,6 +1876,169 @@ test('административные GET сохраняют validation, auth, 
     const { response, body } = await getJson('/api/admin/student/999999?telegram_id=1001', 1001)
     assert.equal(response.status, 404)
     assert.deepEqual(body, { ok: false, error: 'Ученик не найден.' })
+  })
+})
+
+test('POST /api/admin/students выполняет модерацию, назначения и уведомления', async () => {
+  const target = createModerationStudent()
+  const actions = [
+    {
+      body: {
+        telegram_id: 1001,
+        student_id: target.studentId,
+        action: 'approve',
+        teacher_ids: [1, 1],
+      },
+      status: 'studying',
+      audit: 'admin_student_approve',
+      message: '🎉 Ваша заявка одобрена! Теперь вы можете сдавать домашние задания.',
+    },
+    {
+      body: {
+        telegram_id: 1001,
+        student_id: target.studentId,
+        action: 'set_completed',
+        teacher_ids: [999999],
+      },
+      status: 'completed',
+      audit: 'admin_student_set_completed',
+      message: 'Ваш статус обучения обновлен: завершил обучение.',
+    },
+    {
+      body: { telegram_id: 1001, student_id: target.studentId, action: 'set_studying' },
+      status: 'studying',
+      audit: 'admin_student_set_studying',
+      message: 'Ваш статус обучения обновлен: обучается.',
+    },
+    {
+      body: { telegram_id: 1001, student_id: target.studentId, action: 'reject' },
+      status: 'rejected',
+      audit: 'admin_student_reject',
+      message: 'К сожалению, ваша заявка была отклонена.',
+    },
+  ]
+
+  for (const expected of actions) {
+    const { response, body } = await postJson('/api/admin/students', expected.body, 1001)
+    assert.equal(response.status, 200)
+    assert.deepEqual(body, { ok: true })
+
+    const db = new Database(legacyDatabasePath, { readonly: true })
+    const student = db.prepare('SELECT status FROM students WHERE id = ?').get(target.studentId)
+    const audit = db.prepare(`
+      SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+    `).get()
+    const notification = db.prepare(`
+      SELECT kind, body, payload FROM app_notifications
+      WHERE user_id = ? ORDER BY id DESC LIMIT 1
+    `).get(target.userId)
+    db.close()
+
+    assert.equal(student.status, expected.status)
+    assert.deepEqual(audit, {
+      action: expected.audit,
+      meta: JSON.stringify({ student_id: target.studentId, status: expected.status }),
+    })
+    assert.deepEqual(notification, {
+      kind: 'student_status',
+      body: expected.message,
+      payload: JSON.stringify({
+        action: expected.body.action,
+        student_id: target.studentId,
+      }),
+    })
+  }
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const assignments = db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ? ORDER BY teacher_id
+  `).all(target.studentId)
+  db.close()
+  assert.deepEqual(assignments, [{ teacher_id: 1 }])
+})
+
+test('POST /api/admin/students сохраняет validation, auth и domain-ошибки', async (context) => {
+  const validBody = { telegram_id: 1001, student_id: 999999, action: 'approve' }
+
+  await context.test('body проверяется до credential', async () => {
+    for (const body of [
+      { ...validBody, student_id: 0 },
+      { ...validBody, action: 'archive' },
+      { ...validBody, teacher_ids: null },
+      { ...validBody, teacher_ids: [0] },
+      { ...validBody, teacher_ids: Array.from({ length: 81 }, (_, index) => index + 1) },
+    ]) {
+      const result = await postJson('/api/admin/students', body)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+
+  await context.test('нет credential', async () => {
+    const result = await postJson('/api/admin/students', validBody)
+    assert.equal(result.response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const result = await postJson('/api/admin/students', validBody, 3001)
+    assert.equal(result.response.status, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const result = await postJson(
+      '/api/admin/students',
+      { telegram_id: 9999, student_id: 999999, action: 'approve' },
+      9999,
+    )
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не администратор', async () => {
+    const result = await postJson(
+      '/api/admin/students',
+      { telegram_id: 3001, student_id: 999999, action: 'approve' },
+      3001,
+    )
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Доступ только для администраторов.',
+    })
+  })
+
+  await context.test('ученик не найден', async () => {
+    const result = await postJson('/api/admin/students', validBody, 1001)
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Ученик не найден.' })
+  })
+
+  await context.test('преподаватель для approve не найден', async () => {
+    const target = createModerationStudent(9900)
+    const result = await postJson(
+      '/api/admin/students',
+      {
+        telegram_id: 1001,
+        student_id: target.studentId,
+        action: 'approve',
+        teacher_ids: [999999],
+      },
+      1001,
+    )
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Преподаватель с id 999999 не найден.',
+    })
+
+    const db = new Database(legacyDatabasePath, { readonly: true })
+    const student = db.prepare('SELECT status FROM students WHERE id = ?').get(target.studentId)
+    const assignments = db.prepare(`
+      SELECT teacher_id FROM student_teachers WHERE student_id = ?
+    `).all(target.studentId)
+    db.close()
+    assert.equal(student.status, 'moderation')
+    assert.deepEqual(assignments, [])
   })
 })
 

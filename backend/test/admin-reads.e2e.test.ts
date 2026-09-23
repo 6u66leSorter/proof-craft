@@ -8,6 +8,7 @@ import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
+import { UserNotificationGateway } from '../src/notifications/user-notification.gateway.js'
 import { createLegacyDatabase } from './support/legacy-database.js'
 
 const botToken = '123456:nest-admin-reads-token'
@@ -17,10 +18,12 @@ const teacherTelegramId = 8201
 const studentTelegramId = 8301
 const completedStudentTelegramId = 8302
 const applicantTelegramId = 8401
+const moderationStudentTelegramId = 8501
 
 let temporaryRoot: string
 let databasePath: string
 let app: NestFastifyApplication
+const sentNotifications: Array<{ telegramId: number; message: string }> = []
 let ids: {
   studentId: number
   completedStudentId: number
@@ -35,6 +38,8 @@ let ids: {
   latestReviewId: number
   localAttachmentId: number
   telegramAttachmentId: number
+  moderationStudentId: number
+  moderationStudentUserId: number
 }
 
 const seedAdminReads = (path: string): typeof ids => {
@@ -55,11 +60,15 @@ const seedAdminReads = (path: string): typeof ids => {
   const studentUserId = Number(insertUser.run(studentTelegramId, 'Student', 'User', 'student').lastInsertRowid)
   const completedUserId = Number(insertUser.run(completedStudentTelegramId, 'Completed', 'User', 'student').lastInsertRowid)
   const applicantUserId = Number(insertUser.run(applicantTelegramId, 'Applicant', 'User', 'guest').lastInsertRowid)
+  const moderationStudentUserId = Number(
+    insertUser.run(moderationStudentTelegramId, 'Moderation', 'Student', 'student').lastInsertRowid,
+  )
   const insertRole = db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
   insertRole.run(adminUserId, 'admin')
   insertRole.run(teacherUserId, 'teacher')
   insertRole.run(studentUserId, 'student')
   insertRole.run(completedUserId, 'student')
+  insertRole.run(moderationStudentUserId, 'student')
 
   const teacherId = Number(db.prepare(`
     INSERT INTO teachers (user_id, full_name) VALUES (?, '  Teacher   Profile  ')
@@ -86,6 +95,17 @@ const seedAdminReads = (path: string): typeof ids => {
     '+70000000002',
     15,
     'completed',
+    'student',
+    null,
+    null,
+    null,
+  ).lastInsertRowid)
+  const moderationStudentId = Number(insertStudent.run(
+    moderationStudentUserId,
+    'Moderation Student',
+    '+70000000005',
+    10,
+    'moderation',
     'student',
     null,
     null,
@@ -202,6 +222,8 @@ const seedAdminReads = (path: string): typeof ids => {
     latestReviewId,
     localAttachmentId,
     telegramAttachmentId,
+    moderationStudentId,
+    moderationStudentUserId,
   }
 }
 
@@ -232,7 +254,14 @@ before(async () => {
   process.env.DATABASE_URL = `file:${databasePath}`
   process.env.BOT_TOKEN = botToken
   process.env.TG_WEBAPP_AUTH = 'strict'
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    .overrideProvider(UserNotificationGateway)
+    .useValue({
+      send: async (telegramId: number, message: string) => {
+        sentNotifications.push({ telegramId, message })
+      },
+    })
+    .compile()
   app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
   await app.init()
   await app.getHttpAdapter().getInstance().ready()
@@ -479,5 +508,206 @@ test('административные GET сохраняют validation, auth, 
     })
     assert.equal(response.statusCode, 404)
     assert.deepEqual(response.json(), { ok: false, error: 'Ученик не найден.' })
+  })
+})
+
+test('POST admin/students выполняет модерацию, назначения и уведомления', async () => {
+  const actions = [
+    {
+      payload: {
+        telegram_id: adminTelegramId,
+        student_id: ids.moderationStudentId,
+        action: 'approve',
+        teacher_ids: [ids.teacherId, ids.teacherId],
+      },
+      status: 'studying',
+      audit: 'admin_student_approve',
+      message: '🎉 Ваша заявка одобрена! Теперь вы можете сдавать домашние задания.',
+    },
+    {
+      payload: {
+        telegram_id: adminTelegramId,
+        student_id: ids.moderationStudentId,
+        action: 'set_completed',
+        teacher_ids: [999999],
+      },
+      status: 'completed',
+      audit: 'admin_student_set_completed',
+      message: 'Ваш статус обучения обновлен: завершил обучение.',
+    },
+    {
+      payload: {
+        telegram_id: adminTelegramId,
+        student_id: ids.moderationStudentId,
+        action: 'set_studying',
+      },
+      status: 'studying',
+      audit: 'admin_student_set_studying',
+      message: 'Ваш статус обучения обновлен: обучается.',
+    },
+    {
+      payload: {
+        telegram_id: adminTelegramId,
+        student_id: ids.moderationStudentId,
+        action: 'reject',
+      },
+      status: 'rejected',
+      audit: 'admin_student_reject',
+      message: 'К сожалению, ваша заявка была отклонена.',
+    },
+  ]
+
+  for (const expected of actions) {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/students',
+      headers: {
+        ...authHeaders(adminTelegramId),
+        'content-type': 'application/json',
+      },
+      payload: expected.payload,
+    })
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json(), { ok: true })
+
+    const db = new Database(databasePath, { readonly: true })
+    const student = db.prepare('SELECT status FROM students WHERE id = ?')
+      .get(ids.moderationStudentId) as { status: string }
+    const audit = db.prepare(`
+      SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+    `).get()
+    const notification = db.prepare(`
+      SELECT kind, body, payload FROM app_notifications
+      WHERE user_id = ? ORDER BY id DESC LIMIT 1
+    `).get(ids.moderationStudentUserId)
+    db.close()
+
+    assert.equal(student.status, expected.status)
+    assert.deepEqual(audit, {
+      action: expected.audit,
+      meta: JSON.stringify({
+        student_id: ids.moderationStudentId,
+        status: expected.status,
+      }),
+    })
+    assert.deepEqual(notification, {
+      kind: 'student_status',
+      body: expected.message,
+      payload: JSON.stringify({
+        action: expected.payload.action,
+        student_id: ids.moderationStudentId,
+      }),
+    })
+    assert.deepEqual(sentNotifications.at(-1), {
+      telegramId: moderationStudentTelegramId,
+      message: expected.message,
+    })
+  }
+
+  const db = new Database(databasePath, { readonly: true })
+  const assignments = db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ? ORDER BY teacher_id
+  `).all(ids.moderationStudentId)
+  db.close()
+  assert.deepEqual(assignments, [{ teacher_id: ids.teacherId }])
+})
+
+test('POST admin/students поддерживает web-session и nginx-путь', async () => {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/admin/students',
+    headers: {
+      'x-web-session': adminWebSessionToken,
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      student_id: ids.moderationStudentId,
+      action: 'set_studying',
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+})
+
+test('POST admin/students сохраняет validation, auth и domain-ошибки', async (context) => {
+  const injectModeration = async (
+    payload: Record<string, unknown>,
+    telegramId?: number,
+  ) => await app.inject({
+    method: 'POST',
+    url: '/api/admin/students',
+    headers: {
+      ...(telegramId == null ? {} : authHeaders(telegramId)),
+      'content-type': 'application/json',
+    },
+    payload,
+  })
+  const valid = {
+    telegram_id: adminTelegramId,
+    student_id: 999999,
+    action: 'approve',
+  }
+
+  await context.test('body проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, student_id: 0 },
+      { ...valid, action: 'archive' },
+      { ...valid, teacher_ids: null },
+      { ...valid, teacher_ids: [0] },
+      { ...valid, teacher_ids: Array.from({ length: 81 }, (_, index) => index + 1) },
+    ]) {
+      const response = await injectModeration(payload)
+      assert.equal(response.statusCode, 400)
+      assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+  await context.test('нет credential', async () => {
+    const response = await injectModeration(valid)
+    assert.equal(response.statusCode, 401)
+  })
+  await context.test('credential не совпадает', async () => {
+    const response = await injectModeration(valid, studentTelegramId)
+    assert.equal(response.statusCode, 403)
+  })
+  await context.test('пользователь не найден', async () => {
+    const response = await injectModeration(
+      { telegram_id: 9999, student_id: 999999, action: 'approve' },
+      9999,
+    )
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Пользователь не найден.' })
+  })
+  await context.test('пользователь не администратор', async () => {
+    const response = await injectModeration(
+      { telegram_id: studentTelegramId, student_id: 999999, action: 'approve' },
+      studentTelegramId,
+    )
+    assert.equal(response.statusCode, 403)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Доступ только для администраторов.',
+    })
+  })
+  await context.test('ученик не найден', async () => {
+    const response = await injectModeration(valid, adminTelegramId)
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Ученик не найден.' })
+  })
+  await context.test('преподаватель для approve не найден', async () => {
+    const response = await injectModeration(
+      {
+        telegram_id: adminTelegramId,
+        student_id: ids.moderationStudentId,
+        action: 'approve',
+        teacher_ids: [999999],
+      },
+      adminTelegramId,
+    )
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Преподаватель с id 999999 не найден.',
+    })
   })
 })
