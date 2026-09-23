@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common'
 import { AuthModule } from '../auth/auth.module.js'
 import { NotificationsModule } from '../notifications/notifications.module.js'
 import { PersistenceModule } from '../persistence/persistence.module.js'
+import { AdminProfilesController } from './admin-profiles.controller.js'
 import { AboutGuard } from './about.guard.js'
+import { ListPendingProfileEditsUseCase } from './list-pending-profile-edits.use-case.js'
 import { PrismaProfilesRepository } from './prisma-profiles.repository.js'
 import { ProfileEditGuard } from './profile-edit.guard.js'
 import { ProfilesRepository } from './profiles.repository.js'
@@ -14,9 +16,10 @@ import { UpdateTeacherAboutUseCase } from './update-teacher-about.use-case.js'
 
 @Module({
   imports: [AuthModule, NotificationsModule, PersistenceModule],
-  controllers: [StudentProfileController, TeacherProfileController],
+  controllers: [AdminProfilesController, StudentProfileController, TeacherProfileController],
   providers: [
     AboutGuard,
+    ListPendingProfileEditsUseCase,
     ProfileEditGuard,
     SubmitStudentProfileEditUseCase,
     UpdateStudentAboutUseCase,

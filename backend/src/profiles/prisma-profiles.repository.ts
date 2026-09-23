@@ -1,10 +1,48 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { PrismaService } from '../persistence/prisma/prisma.service.js'
-import { ProfilesRepository } from './profiles.repository.js'
+import {
+  ProfilesRepository,
+  type PendingProfileEdit,
+} from './profiles.repository.js'
 
 @Injectable()
 export class PrismaProfilesRepository implements ProfilesRepository {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  async listPendingProfileEdits(): Promise<PendingProfileEdit[]> {
+    const edits = await this.prisma.student_profile_edits.findMany({
+      where: { status: 'pending' },
+      orderBy: { created_at: 'desc' },
+      select: {
+        id: true,
+        student_id: true,
+        new_full_name: true,
+        new_phone: true,
+        new_metro: true,
+        created_at: true,
+        students: {
+          select: {
+            full_name: true,
+            phone: true,
+            metro: true,
+            users: { select: { telegram_id: true } },
+          },
+        },
+      },
+    })
+    return edits.map((edit) => ({
+      id: edit.id,
+      studentId: edit.student_id,
+      newFullName: edit.new_full_name,
+      newPhone: edit.new_phone,
+      newMetro: edit.new_metro,
+      createdAt: edit.created_at,
+      currentFullName: edit.students.full_name,
+      currentPhone: edit.students.phone,
+      currentMetro: edit.students.metro,
+      telegramId: Number(edit.students.users.telegram_id),
+    }))
+  }
 
   async findStudentForEdit(userId: number): Promise<{
     studentId: number

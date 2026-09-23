@@ -62,7 +62,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `POST /api/student/me/avatar` реализован в том же модуле: multipart-поток ограничивается общей настройкой, изображение приводится к JPEG 400×400, а замена файла выполняется без потери прежнего аватара при сбое.
 - `POST /api/student/about` и `POST /api/teacher/about` реализованы в общем ProfilesModule: body валидируется до credential по legacy-контракту, отдельные use cases принимают проверенный principal, а общий Prisma repository обновляет только связанный с ним профиль нужного типа.
 - `POST /api/student/profile-edit` реализован в ProfilesModule: новая pending-заявка атомарно отклоняет предыдущую, профиль не меняется до одобрения, аудит и app-уведомления записываются отдельно, а Telegram-доставка администраторам выполняется best-effort через общий gateway.
-- Следующий маршрут — `GET /api/admin/profile-edits`: чтение очереди pending-заявок администратором.
+- `GET /api/admin/profile-edits` реализован в ProfilesModule: общая admin-проверка различает неизвестного пользователя и недостаточную роль, Prisma repository возвращает только pending-заявки с текущими/предложенными данными по `created_at DESC`.
+- Следующий маршрут — `POST /api/admin/profile-edits/:id`: одобрение или отклонение заявки с аудитом и уведомлением ученика.
 
 ### 5. Вывод legacy и миграция СУБД
 

@@ -108,7 +108,7 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| GET | `/api/admin/profile-edits` | администратор | Необработанные заявки | medium | legacy |
+| GET | `/api/admin/profile-edits` | Telegram, VK или web-session; роль admin | Pending-заявки с текущими и предложенными данными, новые сверху | medium | nest-ready |
 | POST | `/api/admin/profile-edits/:id` | администратор | Принятие/отклонение, аудит, уведомление | high | legacy |
 
 ## Администрирование учеников и преподавателей

@@ -1,6 +1,6 @@
 # Proof Craft backend
 
-Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления, чтение работ, чтение и загрузка аватаров учеников, изменение описаний student/teacher-профилей, заявки на изменение student-профиля, а также авторизованные файлы работы с вложениями; production routing пока остаётся на legacy.
+Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления, чтение работ, чтение и загрузка аватаров учеников, изменение описаний student/teacher-профилей, отправка и административное чтение заявок на изменение student-профиля, а также авторизованные файлы работы с вложениями; production routing пока остаётся на legacy.
 
 ## Команды
 
@@ -63,6 +63,8 @@ DATABASE_URL=file:/absolute/path/to/barber.db npm run backend:start
 `POST /api/student/about` и `POST /api/teacher/about` принимают описание длиной до 1000 символов, обрезают внешние пробелы и сохраняют пустое значение как `NULL`. Нужный профиль определяется только по внутреннему user ID проверенного Telegram/VK/web-session principal; controllers не обращаются к Prisma напрямую.
 
 `POST /api/student/profile-edit` доступен student-профилям `studying` и `completed`. Транзакция отклоняет прежнюю pending-заявку и создаёт новую, не изменяя текущий профиль. После записи use case совместимо с legacy добавляет аудит, app-уведомления и best-effort Telegram-сообщения администраторам через отдельный gateway; сбой вспомогательных уведомлений не отменяет заявку.
+
+`GET /api/admin/profile-edits` требует роль `admin` и возвращает только pending-заявки по убыванию `created_at`: предложенные значения, текущие значения профиля и Telegram ID ученика. Общая admin-проверка сохраняет разные legacy-ответы для неизвестного пользователя и недостаточной роли.
 
 Безопасные команды:
 

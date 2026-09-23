@@ -22,6 +22,7 @@ const testBotToken = '123456:test-contract-token'
 const testVkSecret = 'legacy-contract-vk-secret'
 const testWebSessionToken = 'legacy-contract-web-session'
 const testTeacherWebSessionToken = 'legacy-contract-teacher-web-session'
+const testAdminWebSessionToken = 'legacy-contract-admin-web-session'
 const testImageSvg =
   '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="red"/></svg>'
 
@@ -244,6 +245,13 @@ const seedLegacyDatabase = (databasePath) => {
   `).run(
     teacherUserId,
     crypto.createHash('sha256').update(testTeacherWebSessionToken).digest('hex'),
+  )
+  db.prepare(`
+    INSERT INTO web_sessions (user_id, token_hash, expires_at)
+    VALUES (?, ?, datetime('now', '+1 day'))
+  `).run(
+    adminUserId,
+    crypto.createHash('sha256').update(testAdminWebSessionToken).digest('hex'),
   )
 
   db.close()
@@ -1621,6 +1629,96 @@ test('POST /api/student/profile-edit сохраняет validation, auth и role
     )
     assert.equal(response.status, 403)
     assert.deepEqual(body, { ok: false, error: 'Только ученики могут редактировать профиль.' })
+  })
+})
+
+test('GET /api/admin/profile-edits возвращает только pending-заявки от новых к старым', async () => {
+  const setupDb = new Database(legacyDatabasePath)
+  setupDb.prepare(`
+    UPDATE student_profile_edits SET created_at = '2026-09-23 12:00:00'
+    WHERE student_id = ? AND status = 'pending'
+  `).run(fixtureIds.studentOneId)
+  setupDb.prepare(`
+    UPDATE student_profile_edits SET created_at = '2026-09-23 13:00:00'
+    WHERE student_id = ? AND status = 'pending'
+  `).run(fixtureIds.studentTwoId)
+  const pending = setupDb.prepare(`
+    SELECT id, student_id FROM student_profile_edits
+    WHERE status = 'pending'
+    ORDER BY created_at DESC
+  `).all()
+  setupDb.close()
+
+  const { response, body } = await getJson('/api/admin/profile-edits?telegram_id=1001', 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      edits: [
+        {
+          id: pending[0].id,
+          student_id: fixtureIds.studentTwoId,
+          new_full_name: 'Мария Новая',
+          new_phone: '+79992223344',
+          new_metro: null,
+          created_at: '2026-09-23 13:00:00',
+          current_full_name: 'Мария Ученица',
+          current_phone: '+79990000002',
+          current_metro: 'Северная',
+          telegram_id: 3002,
+        },
+        {
+          id: pending[1].id,
+          student_id: fixtureIds.studentOneId,
+          new_full_name: 'Анна Последняя',
+          new_phone: '+79991112233',
+          new_metro: 'Новая',
+          created_at: '2026-09-23 12:00:00',
+          current_full_name: 'Анна Ученица',
+          current_phone: '+79990000001',
+          current_metro: 'Центральная',
+          telegram_id: 3001,
+        },
+      ],
+    },
+  })
+})
+
+test('GET /api/admin/profile-edits поддерживает web-session', async () => {
+  const response = await fetch(`${baseUrl}/api/admin/profile-edits?telegram_id=1001`, {
+    headers: { 'X-Web-Session': testAdminWebSessionToken },
+  })
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).data.edits.length, 2)
+})
+
+test('GET /api/admin/profile-edits сохраняет validation, auth и role ошибки', async (context) => {
+  await context.test('нет telegram_id', async () => {
+    const { response, body } = await getJson('/api/admin/profile-edits')
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await getJson('/api/admin/profile-edits?telegram_id=1001')
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await getJson('/api/admin/profile-edits?telegram_id=1001', 3001)
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const { response, body } = await getJson('/api/admin/profile-edits?telegram_id=9999', 9999)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не администратор', async () => {
+    const { response, body } = await getJson('/api/admin/profile-edits?telegram_id=3001', 3001)
+    assert.equal(response.status, 403)
+    assert.deepEqual(body, { ok: false, error: 'Доступ только для администраторов.' })
   })
 })
 

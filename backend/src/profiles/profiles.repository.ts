@@ -1,4 +1,19 @@
+export type PendingProfileEdit = {
+  id: number
+  studentId: number
+  newFullName: string
+  newPhone: string
+  newMetro: string | null
+  createdAt: string
+  currentFullName: string
+  currentPhone: string
+  currentMetro: string | null
+  telegramId: number
+}
+
 export abstract class ProfilesRepository {
+  abstract listPendingProfileEdits(): Promise<PendingProfileEdit[]>
+
   abstract findStudentForEdit(userId: number): Promise<{
     studentId: number
     fullName: string
