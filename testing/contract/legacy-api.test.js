@@ -104,13 +104,30 @@ const seedLegacyDatabase = (databasePath) => {
   const pendingHomeworkId = Number(
     insertHomework.run(studentOneId, 2, 'photo', pendingFilePath, 'Работа на проверке', 'pending', 'Кроп').lastInsertRowid,
   )
-  insertHomework.run(studentOneId, 3, 'text', null, 'Работа на доработке', 'revision', 'Классика')
+  const revisionHomeworkId = Number(
+    insertHomework.run(studentOneId, 3, 'text', null, 'Работа на доработке', 'revision', 'Классика').lastInsertRowid,
+  )
   const secondStudentHomeworkId = Number(
     insertHomework.run(studentTwoId, 1, 'video', secondStudentFilePath, 'Работа второго ученика', 'approved', 'Бокс').lastInsertRowid,
   )
   const approvedDocumentHomeworkId = Number(
     insertHomework.run(studentOneId, 4, 'document', approvedFilePath, 'Документ', 'approved', 'Схема').lastInsertRowid,
   )
+  const updateHomework = db.prepare(`
+    UPDATE homeworks
+    SET created_at = ?, updated_at = ?, revision_student_text = ?, revision_student_file_id = ?
+    WHERE id = ?
+  `)
+  updateHomework.run('2026-09-20 12:00:00', '2026-09-20 12:00:00', null, null, approvedHomeworkId)
+  updateHomework.run('2026-09-23 12:00:00', '2026-09-23 12:00:00', null, null, pendingHomeworkId)
+  updateHomework.run(
+    '2026-09-22 12:00:00',
+    '2026-09-22 12:00:00',
+    'Исправленное описание',
+    'telegram_revision_file_12345',
+    revisionHomeworkId,
+  )
+  updateHomework.run('2026-09-19 12:00:00', '2026-09-19 12:00:00', null, null, approvedDocumentHomeworkId)
 
   db.prepare(`
     UPDATE users SET vk_user_id = ? WHERE id = ?
@@ -119,11 +136,55 @@ const seedLegacyDatabase = (databasePath) => {
     UPDATE students SET student_track = 'intern', about_me = ?, avatar_file_id = ? WHERE id = ?
   `).run('О студенте', approvedFilePath, studentOneId)
   const insertReview = db.prepare(`
-    INSERT INTO homework_reviews (homework_id, teacher_id, rating, status)
-    VALUES (?, ?, ?, 'approved')
+    INSERT INTO homework_reviews (homework_id, teacher_id, rating, comment, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `)
-  insertReview.run(approvedHomeworkId, teacherId, 4)
-  insertReview.run(approvedHomeworkId, teacherId, 5)
+  const olderApprovedReviewId = Number(
+    insertReview.run(
+      approvedHomeworkId,
+      teacherId,
+      4,
+      'Первая проверка',
+      'approved',
+      '2026-09-20 13:00:00',
+    ).lastInsertRowid,
+  )
+  const latestApprovedReviewId = Number(
+    insertReview.run(
+      approvedHomeworkId,
+      teacherId,
+      5,
+      'Отличная работа',
+      'approved',
+      '2026-09-21 13:00:00',
+    ).lastInsertRowid,
+  )
+  const revisionReviewId = Number(
+    insertReview.run(
+      revisionHomeworkId,
+      teacherId,
+      null,
+      'Исправьте окантовку',
+      'rejected',
+      '2026-09-22 13:00:00',
+    ).lastInsertRowid,
+  )
+  const localAttachmentId = Number(db.prepare(`
+    INSERT INTO homework_files (homework_id, file_id, content_type, sort_order, created_at)
+    VALUES (?, ?, 'photo', 0, '2026-09-20 12:10:00')
+  `).run(approvedHomeworkId, approvedFilePath).lastInsertRowid)
+  const telegramAttachmentId = Number(db.prepare(`
+    INSERT INTO homework_files (homework_id, file_id, content_type, sort_order, created_at)
+    VALUES (?, 'telegram_attachment_file_12345', 'photo', 1, '2026-09-20 12:20:00')
+  `).run(approvedHomeworkId).lastInsertRowid)
+  const studentCommentId = Number(db.prepare(`
+    INSERT INTO homework_comments (homework_id, author_user_id, text_content, created_at)
+    VALUES (?, ?, 'Спасибо за обратную связь', '2026-09-21 14:00:00')
+  `).run(approvedHomeworkId, studentOneUserId).lastInsertRowid)
+  const teacherCommentId = Number(db.prepare(`
+    INSERT INTO homework_comments (homework_id, author_user_id, text_content, created_at)
+    VALUES (?, ?, 'Продолжайте в том же духе', '2026-09-21 15:00:00')
+  `).run(approvedHomeworkId, teacherUserId).lastInsertRowid)
   const unreadNotificationId = Number(db.prepare(`
     INSERT INTO app_notifications (user_id, kind, body, payload, read_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -171,11 +232,21 @@ const seedLegacyDatabase = (databasePath) => {
     approvedHomeworkId,
     approvedDocumentHomeworkId,
     pendingHomeworkId,
+    revisionHomeworkId,
     secondStudentHomeworkId,
     studentOneId,
     studentTwoId,
     unreadNotificationId,
     otherUserNotificationId,
+    olderApprovedReviewId,
+    latestApprovedReviewId,
+    revisionReviewId,
+    localAttachmentId,
+    telegramAttachmentId,
+    studentCommentId,
+    teacherCommentId,
+    approvedFilePath,
+    pendingFilePath,
   }
 }
 
@@ -363,6 +434,228 @@ test('strict Telegram auth отклоняет несовпадающий telegra
   const { response, body } = await getJson('/api/session?telegram_id=3001', 3002)
   assert.equal(response.status, 403)
   assert.equal(body.ok, false)
+})
+
+test('GET /api/student/homeworks фиксирует полный агрегированный контракт ученика', async () => {
+  const { response, body } = await getJson('/api/student/homeworks?telegram_id=3001', 3001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      homeworks: [
+        {
+          id: fixtureIds.pendingHomeworkId,
+          student_id: fixtureIds.studentOneId,
+          lesson_number: 2,
+          is_bonus: false,
+          haircut_name: 'Кроп',
+          has_local_file: true,
+          has_telegram_file: false,
+          status: 'pending',
+          content_type: 'photo',
+          file_id: fixtureIds.pendingFilePath,
+          text_content: 'Работа на проверке',
+          review_count: 0,
+          created_at: '2026-09-23 12:00:00',
+          revision_student_text: null,
+          revision_has_local_file: false,
+          revision_has_telegram_file: false,
+          reviews: [],
+          latest_review: null,
+          comments: [],
+          extra_files_count: 0,
+          attachments: [],
+        },
+        {
+          id: fixtureIds.revisionHomeworkId,
+          student_id: fixtureIds.studentOneId,
+          lesson_number: 3,
+          is_bonus: false,
+          haircut_name: 'Классика',
+          has_local_file: false,
+          has_telegram_file: false,
+          status: 'revision',
+          content_type: 'text',
+          file_id: null,
+          text_content: 'Работа на доработке',
+          review_count: 1,
+          created_at: '2026-09-22 12:00:00',
+          revision_student_text: 'Исправленное описание',
+          revision_has_local_file: false,
+          revision_has_telegram_file: true,
+          reviews: [
+            {
+              id: fixtureIds.revisionReviewId,
+              teacher_id: 1,
+              teacher_name: 'Ирина Преподаватель',
+              rating: null,
+              comment: 'Исправьте окантовку',
+              status: 'rejected',
+              created_at: '2026-09-22 13:00:00',
+            },
+          ],
+          latest_review: {
+            id: fixtureIds.revisionReviewId,
+            teacher_id: 1,
+            teacher_name: 'Ирина Преподаватель',
+            rating: null,
+            comment: 'Исправьте окантовку',
+            status: 'rejected',
+            created_at: '2026-09-22 13:00:00',
+          },
+          comments: [],
+          extra_files_count: 0,
+          attachments: [],
+        },
+        {
+          id: fixtureIds.approvedHomeworkId,
+          student_id: fixtureIds.studentOneId,
+          lesson_number: 1,
+          is_bonus: false,
+          haircut_name: 'Фейд',
+          has_local_file: true,
+          has_telegram_file: false,
+          status: 'approved',
+          content_type: 'photo',
+          file_id: fixtureIds.approvedFilePath,
+          text_content: 'Одобренная работа',
+          review_count: 2,
+          created_at: '2026-09-20 12:00:00',
+          revision_student_text: null,
+          revision_has_local_file: false,
+          revision_has_telegram_file: false,
+          reviews: [
+            {
+              id: fixtureIds.latestApprovedReviewId,
+              teacher_id: 1,
+              teacher_name: 'Ирина Преподаватель',
+              rating: 5,
+              comment: 'Отличная работа',
+              status: 'approved',
+              created_at: '2026-09-21 13:00:00',
+            },
+            {
+              id: fixtureIds.olderApprovedReviewId,
+              teacher_id: 1,
+              teacher_name: 'Ирина Преподаватель',
+              rating: 4,
+              comment: 'Первая проверка',
+              status: 'approved',
+              created_at: '2026-09-20 13:00:00',
+            },
+          ],
+          latest_review: {
+            id: fixtureIds.latestApprovedReviewId,
+            teacher_id: 1,
+            teacher_name: 'Ирина Преподаватель',
+            rating: 5,
+            comment: 'Отличная работа',
+            status: 'approved',
+            created_at: '2026-09-21 13:00:00',
+          },
+          comments: [
+            {
+              id: fixtureIds.studentCommentId,
+              author_user_id: 3,
+              author_name: 'Анна Ученица',
+              author_role: 'student',
+              text_content: 'Спасибо за обратную связь',
+              created_at: '2026-09-21 14:00:00',
+            },
+            {
+              id: fixtureIds.teacherCommentId,
+              author_user_id: 2,
+              author_name: 'Ирина Преподаватель',
+              author_role: 'teacher',
+              text_content: 'Продолжайте в том же духе',
+              created_at: '2026-09-21 15:00:00',
+            },
+          ],
+          extra_files_count: 2,
+          attachments: [
+            {
+              id: fixtureIds.localAttachmentId,
+              content_type: 'photo',
+              has_local_file: true,
+              has_telegram_file: false,
+            },
+            {
+              id: fixtureIds.telegramAttachmentId,
+              content_type: 'photo',
+              has_local_file: false,
+              has_telegram_file: true,
+            },
+          ],
+        },
+        {
+          id: fixtureIds.approvedDocumentHomeworkId,
+          student_id: fixtureIds.studentOneId,
+          lesson_number: 4,
+          is_bonus: false,
+          haircut_name: 'Схема',
+          has_local_file: true,
+          has_telegram_file: false,
+          status: 'approved',
+          content_type: 'document',
+          file_id: fixtureIds.approvedFilePath,
+          text_content: 'Документ',
+          review_count: 0,
+          created_at: '2026-09-19 12:00:00',
+          revision_student_text: null,
+          revision_has_local_file: false,
+          revision_has_telegram_file: false,
+          reviews: [],
+          latest_review: null,
+          comments: [],
+          extra_files_count: 0,
+          attachments: [],
+        },
+      ],
+      average_rating: 4.5,
+      ratings_count: 2,
+    },
+  })
+})
+
+test('student/homeworks изолирует ученика и принимает web-session', async () => {
+  const otherStudent = await getJson('/api/student/homeworks?telegram_id=3002', 3002)
+  assert.equal(otherStudent.response.status, 200)
+  assert.deepEqual(
+    otherStudent.body.data.homeworks.map((homework) => homework.id),
+    [fixtureIds.secondStudentHomeworkId],
+  )
+  assert.equal(otherStudent.body.data.average_rating, null)
+  assert.equal(otherStudent.body.data.ratings_count, 0)
+
+  const webResponse = await fetch(`${baseUrl}/api/student/homeworks?telegram_id=3001`, {
+    headers: { 'X-Web-Session': testWebSessionToken },
+  })
+  assert.equal(webResponse.status, 200)
+  assert.equal((await webResponse.json()).data.homeworks.length, 4)
+})
+
+test('student/homeworks сохраняет auth и not-found ошибки', async (context) => {
+  await context.test('нет credential', async () => {
+    const { response } = await getJson('/api/student/homeworks?telegram_id=3001')
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await getJson('/api/student/homeworks?telegram_id=3001', 3002)
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('пользователь не ученик', async () => {
+    const { response, body } = await getJson('/api/student/homeworks?telegram_id=2001', 2001)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Ученик не найден.' })
+  })
+
+  await context.test('подписанный неизвестный пользователь', async () => {
+    const { response, body } = await getJson('/api/student/homeworks?telegram_id=9999', 9999)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Ученик не найден.' })
+  })
 })
 
 test('GET /api/notifications возвращает свои уведомления от новых к старым', async () => {
