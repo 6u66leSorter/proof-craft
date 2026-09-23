@@ -729,6 +729,171 @@ test('student/homeworks сохраняет auth и not-found ошибки', asyn
   })
 })
 
+test('GET /api/teacher/dashboard ограничивает преподавателя назначенными учениками', async () => {
+  const { response, body } = await getJson('/api/teacher/dashboard?telegram_id=2001', 2001)
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      pendingCount: 1,
+      latest: {
+        id: fixtureIds.pendingHomeworkId,
+        student_id: fixtureIds.studentOneId,
+        student_name: 'Анна Ученица',
+        lesson_number: 2,
+        is_bonus: false,
+        haircut_name: 'Кроп',
+        created_at: '2026-09-23 12:00:00',
+      },
+      students: [
+        {
+          id: fixtureIds.studentOneId,
+          full_name: 'Анна Ученица',
+          pending_count: 1,
+          has_avatar: true,
+          telegram_id: 3001,
+          username: null,
+          first_name: 'Анна',
+          last_name: 'Ученица',
+        },
+      ],
+      lastStudents: [
+        { student_id: fixtureIds.studentOneId, student_name: 'Анна Ученица' },
+      ],
+    },
+  })
+})
+
+test('GET /api/teacher/dashboard разрешает администратору всех активных учеников', async () => {
+  const response = await fetch(`${baseUrl}/api/teacher/dashboard?telegram_id=1001`, {
+    headers: { 'X-Web-Session': testAdminWebSessionToken },
+  })
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.pendingCount, 1)
+  assert.deepEqual(body.data.students.map((student) => student.id), [fixtureIds.studentOneId])
+})
+
+test('GET /api/teacher/students возвращает назначенных учеников и рейтинг', async () => {
+  const { response, body } = await getJson('/api/teacher/students?telegram_id=2001', 2001)
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      students: [
+        {
+          id: fixtureIds.studentOneId,
+          full_name: 'Анна Ученица',
+          lessons_count: 10,
+          status: 'studying',
+          average_rating: 4.5,
+          student_track: 'intern',
+          ratings_count: 2,
+          pending_homeworks_count: 1,
+          has_avatar: true,
+          teachers: [{ id: 1, full_name: 'Ирина Преподаватель' }],
+        },
+      ],
+    },
+  })
+
+  const admin = await getJson('/api/teacher/students?telegram_id=1001', 1001)
+  assert.equal(admin.response.status, 200)
+  assert.deepEqual(
+    admin.body.data.students.map((student) => student.id).sort((left, right) => left - right),
+    [fixtureIds.studentOneId, fixtureIds.studentTwoId],
+  )
+})
+
+test('GET /api/teacher/student-homeworks по умолчанию возвращает только pending', async () => {
+  const { response, body } = await getJson(
+    `/api/teacher/student-homeworks?telegram_id=2001&student_id=${fixtureIds.studentOneId}`,
+    2001,
+  )
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.student.full_name, 'Анна Ученица')
+  assert.equal(body.data.student.average_rating, 4.5)
+  assert.equal(body.data.student.ratings_count, 2)
+  assert.deepEqual(
+    body.data.homeworks.map((homework) => homework.id),
+    [fixtureIds.pendingHomeworkId],
+  )
+})
+
+test('teacher/student-homeworks поддерживает include_reviewed и web-session', async () => {
+  const response = await fetch(
+    `${baseUrl}/api/teacher/student-homeworks?telegram_id=2001&student_id=${fixtureIds.studentOneId}&include_reviewed=true`,
+    { headers: { 'X-Web-Session': testTeacherWebSessionToken } },
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(
+    body.data.homeworks.map((homework) => homework.id),
+    [
+      fixtureIds.pendingHomeworkId,
+      fixtureIds.revisionHomeworkId,
+      fixtureIds.approvedHomeworkId,
+      fixtureIds.approvedDocumentHomeworkId,
+    ],
+  )
+  assert.equal(body.data.homeworks[2].latest_review.rating, 5)
+  assert.equal(body.data.homeworks[2].comments.length, 2)
+  assert.equal(body.data.homeworks[2].attachments.length, 2)
+})
+
+test('teacher/student-homeworks проверяет назначение, а администратор видит всех', async () => {
+  const denied = await getJson(
+    `/api/teacher/student-homeworks?telegram_id=2001&student_id=${fixtureIds.studentTwoId}`,
+    2001,
+  )
+  assert.equal(denied.response.status, 403)
+  assert.deepEqual(denied.body, {
+    ok: false,
+    error: 'Ученик не прикреплён к этому преподавателю.',
+  })
+
+  const admin = await getJson(
+    `/api/teacher/student-homeworks?telegram_id=1001&student_id=${fixtureIds.studentTwoId}&include_reviewed=true`,
+    1001,
+  )
+  assert.equal(admin.response.status, 200)
+  assert.deepEqual(
+    admin.body.data.homeworks.map((homework) => homework.id),
+    [fixtureIds.secondStudentHomeworkId],
+  )
+})
+
+test('кабинет преподавателя сохраняет validation, auth и role ошибки', async (context) => {
+  await context.test('student_id проверяется до credential', async () => {
+    const { response } = await getJson(
+      '/api/teacher/student-homeworks?telegram_id=2001&student_id=invalid',
+    )
+    assert.equal(response.status, 400)
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await getJson('/api/teacher/dashboard?telegram_id=2001')
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const { response, body } = await getJson('/api/teacher/dashboard?telegram_id=9999', 9999)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не преподаватель', async () => {
+    const { response, body } = await getJson('/api/teacher/dashboard?telegram_id=3001', 3001)
+    assert.equal(response.status, 403)
+    assert.deepEqual(body, { ok: false, error: 'Доступ только для преподавателей.' })
+  })
+})
+
 test('GET /api/notifications возвращает свои уведомления от новых к старым', async () => {
   const { response, body } = await getJson(
     '/api/notifications?telegram_id=3001&limit=3',
