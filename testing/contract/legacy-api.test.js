@@ -374,6 +374,22 @@ const postJson = async (path, body, telegramUserId = null) => {
   return { response, body: await response.json() }
 }
 
+const createPendingHomework = ({ studentId, lessonNumber, isBonus = 0 }) => {
+  const db = new Database(legacyDatabasePath)
+  const id = Number(db.prepare(`
+    INSERT INTO homeworks
+      (student_id, lesson_number, is_bonus, content_type, text_content, status, haircut_name)
+    VALUES (?, ?, ?, 'text', ?, 'pending', 'Контрактная работа')
+  `).run(
+    studentId,
+    lessonNumber,
+    isBonus,
+    `Работа для проверки ${lessonNumber}`,
+  ).lastInsertRowid)
+  db.close()
+  return id
+}
+
 let fixtureIds
 
 before(async () => {
@@ -2286,6 +2302,265 @@ test('POST /api/admin/profile-edits/:id сохраняет validation, auth и r
     assert.deepEqual(result.body, {
       ok: false,
       error: 'Заявка не найдена или уже обработана.',
+    })
+  })
+})
+
+test('POST /api/teacher/review принимает работу и создаёт все побочные эффекты', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: fixtureIds.studentOneId,
+    lessonNumber: 5,
+  })
+  const response = await fetch(`${baseUrl}/api/teacher/review`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Web-Session': testTeacherWebSessionToken,
+    },
+    body: JSON.stringify({
+      telegram_id: 2001,
+      homework_id: homeworkId,
+      rating: '5',
+      comment: '  Отличная техника  ',
+    }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const homework = db.prepare('SELECT status FROM homeworks WHERE id = ?').get(homeworkId)
+  const review = db.prepare(`
+    SELECT teacher_id, rating, comment, status
+    FROM homework_reviews WHERE homework_id = ? ORDER BY id DESC LIMIT 1
+  `).get(homeworkId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log
+    WHERE action = 'teacher_review_homework' ORDER BY id DESC LIMIT 1
+  `).get()
+  const chat = db.prepare(`
+    SELECT student_id, sender_user_id, text_content, content_type, file_id
+    FROM chat_messages WHERE student_id = ? ORDER BY id DESC LIMIT 1
+  `).get(fixtureIds.studentOneId)
+  const notifications = db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT user_id FROM students WHERE id = ?)
+      AND kind IN ('homework_review', 'feedback_invite')
+    ORDER BY id DESC LIMIT 2
+  `).all(fixtureIds.studentOneId)
+  const invite = db.prepare(`
+    SELECT student_id, milestone, delivery_status
+    FROM feedback_invites WHERE student_id = ? AND milestone = 5
+  `).get(fixtureIds.studentOneId)
+  db.close()
+
+  assert.equal(homework.status, 'approved')
+  assert.deepEqual(review, {
+    teacher_id: 1,
+    rating: 5,
+    comment: 'Отличная техника',
+    status: 'approved',
+  })
+  assert.deepEqual(audit, {
+    action: 'teacher_review_homework',
+    meta: JSON.stringify({ homework_id: homeworkId, status: 'approved' }),
+  })
+  assert.deepEqual(chat, {
+    student_id: fixtureIds.studentOneId,
+    sender_user_id: 2,
+    text_content: '✅ Проверка ДЗ (урок №5): принято. Оценка: 5/5. Комментарий: Отличная техника',
+    content_type: 'system',
+    file_id: null,
+  })
+  assert.deepEqual(notifications, [
+    {
+      kind: 'homework_review',
+      body: 'Задание по урок №5 принято. Оценка: 5 из 5.\nКомментарий: Отличная техника',
+      payload: JSON.stringify({ homework_id: homeworkId, status: 'approved' }),
+    },
+    {
+      kind: 'feedback_invite',
+      body: 'Урок №5 принят. Расскажите администратору, как проходит обучение. Отзыв недоступен преподавателю.',
+      payload: JSON.stringify({ screen: 'feedback' }),
+    },
+  ])
+  assert.deepEqual(invite, {
+    student_id: fixtureIds.studentOneId,
+    milestone: 5,
+    delivery_status: 'pending',
+  })
+})
+
+test('POST /api/teacher/review возвращает работу на доработку по комментарию', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: fixtureIds.studentOneId,
+    lessonNumber: 6,
+  })
+  const { response, body } = await postJson(
+    '/api/teacher/review',
+    { telegram_id: 2001, homework_id: homeworkId, comment: '  Исправьте форму  ' },
+    2001,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const homework = db.prepare('SELECT status FROM homeworks WHERE id = ?').get(homeworkId)
+  const review = db.prepare(`
+    SELECT rating, comment, status FROM homework_reviews
+    WHERE homework_id = ? ORDER BY id DESC LIMIT 1
+  `).get(homeworkId)
+  const chat = db.prepare(`
+    SELECT text_content FROM chat_messages WHERE student_id = ? ORDER BY id DESC LIMIT 1
+  `).get(fixtureIds.studentOneId)
+  const notification = db.prepare(`
+    SELECT body, payload FROM app_notifications
+    WHERE kind = 'homework_review' AND payload LIKE ? ORDER BY id DESC LIMIT 1
+  `).get(`%\"homework_id\":${homeworkId}%`)
+  db.close()
+
+  assert.equal(homework.status, 'revision')
+  assert.deepEqual(review, {
+    rating: null,
+    comment: 'Исправьте форму',
+    status: 'rejected',
+  })
+  assert.deepEqual(chat, {
+    text_content: '❌ Проверка ДЗ (урок №6): нужна доработка. Комментарий: Исправьте форму',
+  })
+  assert.deepEqual(notification, {
+    body: 'Задание по урок №6 нужно доработать.\nКомментарий: Исправьте форму',
+    payload: JSON.stringify({ homework_id: homeworkId, status: 'revision' }),
+  })
+})
+
+test('POST /api/teacher/review позволяет администратору проверить любого активного ученика', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: fixtureIds.studentTwoId,
+    lessonNumber: 7,
+    isBonus: 1,
+  })
+  const { response, body } = await postJson(
+    '/api/teacher/review',
+    { telegram_id: 1001, homework_id: homeworkId, rating: 4 },
+    1001,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const teacher = db.prepare(`
+    SELECT t.full_name, t.user_id
+    FROM teachers t JOIN users u ON u.id = t.user_id
+    WHERE u.telegram_id = 1001
+  `).get()
+  const review = db.prepare(`
+    SELECT hr.rating, hr.status, t.user_id AS teacher_user_id
+    FROM homework_reviews hr JOIN teachers t ON t.id = hr.teacher_id
+    WHERE hr.homework_id = ?
+  `).get(homeworkId)
+  const invite = db.prepare(`
+    SELECT id FROM feedback_invites WHERE student_id = ? AND milestone = 7
+  `).get(fixtureIds.studentTwoId)
+  db.close()
+
+  assert.deepEqual(teacher, { full_name: 'Админ Тестовый', user_id: 1 })
+  assert.deepEqual(review, { rating: 4, status: 'approved', teacher_user_id: 1 })
+  assert.equal(invite, undefined)
+})
+
+test('POST /api/teacher/review сохраняет validation, auth и domain-ошибки', async (context) => {
+  await context.test('body проверяется до credential', async () => {
+    for (const body of [
+      { telegram_id: 2001, homework_id: 0, rating: 5 },
+      { telegram_id: 2001, homework_id: 1, rating: 6 },
+      { telegram_id: 2001, homework_id: 1, comment: 123 },
+    ]) {
+      const result = await postJson('/api/teacher/review', body)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+
+  await context.test('нет credential', async () => {
+    const result = await postJson('/api/teacher/review', {
+      telegram_id: 2001,
+      homework_id: 999999,
+      rating: 5,
+    })
+    assert.equal(result.response.status, 401)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 9999, homework_id: 999999, rating: 5 },
+      9999,
+    )
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не преподаватель', async () => {
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 3001, homework_id: 999999, rating: 5 },
+      3001,
+    )
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, { ok: false, error: 'Доступ только для преподавателей.' })
+  })
+
+  await context.test('задание не найдено', async () => {
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 2001, homework_id: 999999, rating: 5 },
+      2001,
+    )
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Задание не найдено.' })
+  })
+
+  await context.test('задание уже проверено', async () => {
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 2001, homework_id: fixtureIds.approvedHomeworkId, rating: 5 },
+      2001,
+    )
+    assert.equal(result.response.status, 409)
+    assert.deepEqual(result.body, { ok: false, error: 'Это задание уже проверено.' })
+  })
+
+  await context.test('ученик не назначен преподавателю', async () => {
+    const homeworkId = createPendingHomework({
+      studentId: fixtureIds.studentTwoId,
+      lessonNumber: 8,
+    })
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 2001, homework_id: homeworkId, rating: 5 },
+      2001,
+    )
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Ученик не прикреплён к этому преподавателю.',
+    })
+  })
+
+  await context.test('нужна оценка или непустой комментарий', async () => {
+    const homeworkId = createPendingHomework({
+      studentId: fixtureIds.studentOneId,
+      lessonNumber: 9,
+    })
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 2001, homework_id: homeworkId, comment: '   ' },
+      2001,
+    )
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Укажите оценку или напишите комментарий.',
     })
   })
 })

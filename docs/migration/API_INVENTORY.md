@@ -60,7 +60,7 @@
 | PATCH | `/api/student/homeworks/:homeworkId` | владелец pending-работы | Редактирование текста и вложений | high | legacy |
 | POST | `/api/student/homeworks/:homeworkId/revision` | владелец revision-работы | Исправление и возврат в pending | high | legacy |
 | POST | `/api/homeworks/:id/comments` | ученик, назначенный преподаватель или администратор | Комментарий и уведомления | high | legacy |
-| POST | `/api/teacher/review` | назначенный преподаватель или администратор | Проверка, статус, рейтинг, чат, уведомления, feedback invite | high | legacy |
+| POST | `/api/teacher/review` | назначенный преподаватель; администратор — любой активный ученик | Транзакционная проверка, статус, рейтинг, системное сообщение, аудит, уведомления и одноразовый feedback invite для уроков 5/10/15 | high | nest-ready |
 | GET | `/api/homeworks/:id/file` | владелец, назначенный преподаватель или администратор | Основной local/Telegram-файл и JPEG-preview после проверки доступа | high | nest-ready |
 | GET | `/api/homeworks/:homeworkId/revision/file` | владелец, назначенный преподаватель или администратор | Local/Telegram-файл исправления и JPEG-preview после проверки доступа | high | nest-ready |
 | GET | `/api/homeworks/:homeworkId/attachments/:attachmentId/file` | владелец, назначенный преподаватель или администратор | Принадлежащее работе дополнительное вложение, local/Telegram-файл и JPEG-preview фото | high | nest-ready |

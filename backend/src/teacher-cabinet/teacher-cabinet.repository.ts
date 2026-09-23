@@ -71,8 +71,41 @@ export type TeacherStudentHomeworks = {
   homeworks: TeacherHomework[]
 }
 
+export type TeacherReviewTarget = {
+  id: number
+  studentId: number
+  studentUserId: number
+  studentTelegramId: number
+  studentStatus: string
+  lessonNumber: number | null
+  isBonus: boolean
+  status: string
+  assignedTeacherIds: number[]
+}
+
+export type SaveTeacherReviewCommand = {
+  homeworkId: number
+  studentId: number
+  studentUserId: number
+  actorUserId: number
+  teacherId: number
+  rating: number | null
+  comment: string | null
+  reviewStatus: 'approved' | 'rejected'
+  homeworkStatus: 'approved' | 'revision'
+  reviewedAt: string
+  chatText: string
+  notificationBody: string
+  notificationPayload: string
+  feedbackMilestone: number | null
+  feedbackNotificationBody: string | null
+}
+
 export abstract class TeacherCabinetRepository {
   abstract findTeacherIdByUserId(userId: number): Promise<number | null>
+  abstract ensureTeacherForUser(userId: number): Promise<number>
+  abstract findReviewTarget(homeworkId: number): Promise<TeacherReviewTarget | null>
+  abstract saveReview(command: SaveTeacherReviewCommand): Promise<boolean>
   abstract listStudents(teacherId: number | null): Promise<TeacherStudentSummary[]>
   abstract findStudentHomeworks(
     studentId: number,

@@ -3,7 +3,9 @@ import type { Prisma } from '../generated/prisma/client.js'
 import { PrismaService } from '../persistence/prisma/prisma.service.js'
 import {
   TeacherCabinetRepository,
+  type SaveTeacherReviewCommand,
   type TeacherHomework,
+  type TeacherReviewTarget,
   type TeacherStudentHomeworks,
   type TeacherStudentSummary,
 } from './teacher-cabinet.repository.js'
@@ -212,6 +214,135 @@ export class PrismaTeacherCabinetRepository implements TeacherCabinetRepository 
       select: { id: true },
     })
     return teacher?.id ?? null
+  }
+
+  async ensureTeacherForUser(userId: number): Promise<number> {
+    const user = await this.prisma.users.findUniqueOrThrow({
+      where: { id: userId },
+      select: { first_name: true, last_name: true, username: true },
+    })
+    const fullName =
+      [user.first_name, user.last_name].filter(Boolean).join(' ').trim() ||
+      user.username ||
+      'Администратор'
+    const teacher = await this.prisma.teachers.upsert({
+      where: { user_id: userId },
+      update: {},
+      create: { user_id: userId, full_name: fullName },
+      select: { id: true },
+    })
+    return teacher.id
+  }
+
+  async findReviewTarget(homeworkId: number): Promise<TeacherReviewTarget | null> {
+    const homework = await this.prisma.homeworks.findUnique({
+      where: { id: homeworkId },
+      select: {
+        id: true,
+        lesson_number: true,
+        is_bonus: true,
+        status: true,
+        students: {
+          select: {
+            id: true,
+            user_id: true,
+            status: true,
+            users: { select: { telegram_id: true } },
+            student_teachers: { select: { teacher_id: true } },
+          },
+        },
+      },
+    })
+    if (!homework) return null
+    return {
+      id: homework.id,
+      studentId: homework.students.id,
+      studentUserId: homework.students.user_id,
+      studentTelegramId: Number(homework.students.users.telegram_id),
+      studentStatus: homework.students.status,
+      lessonNumber: homework.lesson_number,
+      isBonus: Boolean(homework.is_bonus),
+      status: homework.status,
+      assignedTeacherIds: homework.students.student_teachers.map(
+        ({ teacher_id }) => teacher_id,
+      ),
+    }
+  }
+
+  async saveReview(command: SaveTeacherReviewCommand): Promise<boolean> {
+    return await this.prisma.$transaction(async (transaction) => {
+      const claimed = await transaction.homeworks.updateMany({
+        where: { id: command.homeworkId, status: 'pending' },
+        data: { status: command.homeworkStatus, updated_at: command.reviewedAt },
+      })
+      if (claimed.count === 0) return false
+
+      await transaction.homework_reviews.create({
+        data: {
+          homework_id: command.homeworkId,
+          teacher_id: command.teacherId,
+          rating: command.rating,
+          comment: command.comment,
+          status: command.reviewStatus,
+        },
+      })
+
+      if (command.feedbackMilestone != null && command.feedbackNotificationBody) {
+        const existingInvite = await transaction.feedback_invites.findUnique({
+          where: {
+            student_id_milestone: {
+              student_id: command.studentId,
+              milestone: command.feedbackMilestone,
+            },
+          },
+          select: { id: true },
+        })
+        if (!existingInvite) {
+          await transaction.feedback_invites.create({
+            data: {
+              student_id: command.studentId,
+              milestone: command.feedbackMilestone,
+            },
+          })
+          await transaction.app_notifications.create({
+            data: {
+              user_id: command.studentUserId,
+              kind: 'feedback_invite',
+              body: command.feedbackNotificationBody,
+              payload: JSON.stringify({ screen: 'feedback' }),
+            },
+          })
+        }
+      }
+
+      await transaction.audit_log.create({
+        data: {
+          actor_user_id: command.actorUserId,
+          action: 'teacher_review_homework',
+          meta: JSON.stringify({
+            homework_id: command.homeworkId,
+            status: command.reviewStatus,
+          }),
+        },
+      })
+      await transaction.chat_messages.create({
+        data: {
+          student_id: command.studentId,
+          sender_user_id: command.actorUserId,
+          text_content: command.chatText,
+          content_type: 'system',
+        },
+      })
+      await transaction.app_notifications.create({
+        data: {
+          user_id: command.studentUserId,
+          kind: 'homework_review',
+          body: command.notificationBody,
+          payload: command.notificationPayload,
+        },
+      })
+      return true
+    })
   }
 
   async listStudents(teacherId: number | null): Promise<TeacherStudentSummary[]> {

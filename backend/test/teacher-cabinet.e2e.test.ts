@@ -8,6 +8,7 @@ import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
+import { UserNotificationGateway } from '../src/notifications/user-notification.gateway.js'
 import { createLegacyDatabase } from './support/legacy-database.js'
 
 const botToken = '123456:nest-teacher-cabinet-token'
@@ -21,6 +22,7 @@ const ordinaryUserTelegramId = 9401
 let temporaryRoot: string
 let databasePath: string
 let app: NestFastifyApplication
+const sentNotifications: Array<{ telegramId: number; message: string }> = []
 let ids: {
   teacherId: number
   assignedStudentId: number
@@ -162,6 +164,30 @@ const authHeaders = (telegramId: number): Record<string, string> => ({
   'x-telegram-init-data': buildTelegramInitData(telegramId),
 })
 
+const createPendingHomework = ({
+  studentId,
+  lessonNumber,
+  isBonus = 0,
+}: {
+  studentId: number
+  lessonNumber: number
+  isBonus?: number
+}): number => {
+  const db = new Database(databasePath)
+  const id = Number(db.prepare(`
+    INSERT INTO homeworks
+      (student_id, lesson_number, is_bonus, content_type, text_content, status, haircut_name)
+    VALUES (?, ?, ?, 'text', ?, 'pending', 'Контрактная работа')
+  `).run(
+    studentId,
+    lessonNumber,
+    isBonus,
+    `Работа для проверки ${lessonNumber}`,
+  ).lastInsertRowid)
+  db.close()
+  return id
+}
+
 before(async () => {
   const fixture = await createLegacyDatabase('proof-craft-teacher-cabinet-')
   temporaryRoot = fixture.temporaryRoot
@@ -170,7 +196,14 @@ before(async () => {
   process.env.DATABASE_URL = `file:${databasePath}`
   process.env.BOT_TOKEN = botToken
   process.env.TG_WEBAPP_AUTH = 'strict'
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    .overrideProvider(UserNotificationGateway)
+    .useValue({
+      send: async (telegramId: number, message: string) => {
+        sentNotifications.push({ telegramId, message })
+      },
+    })
+    .compile()
   app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
   await app.init()
   await app.getHttpAdapter().getInstance().ready()
@@ -368,6 +401,315 @@ test('кабинет преподавателя сохраняет validation, a
     assert.deepEqual(response.json(), {
       ok: false,
       error: 'Доступ только для преподавателей.',
+    })
+  })
+})
+
+test('POST teacher/review принимает работу и атомарно создаёт побочные эффекты', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: ids.assignedStudentId,
+    lessonNumber: 5,
+  })
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/teacher/review',
+    headers: {
+      ...authHeaders(teacherTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: teacherTelegramId,
+      homework_id: homeworkId,
+      rating: '5',
+      comment: '  Отличная техника  ',
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+
+  const db = new Database(databasePath, { readonly: true })
+  const homework = db.prepare('SELECT status FROM homeworks WHERE id = ?').get(homeworkId) as {
+    status: string
+  }
+  const review = db.prepare(`
+    SELECT teacher_id, rating, comment, status
+    FROM homework_reviews WHERE homework_id = ? ORDER BY id DESC LIMIT 1
+  `).get(homeworkId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log
+    WHERE action = 'teacher_review_homework' ORDER BY id DESC LIMIT 1
+  `).get()
+  const chat = db.prepare(`
+    SELECT student_id, text_content, content_type
+    FROM chat_messages WHERE student_id = ? ORDER BY id DESC LIMIT 1
+  `).get(ids.assignedStudentId)
+  const notifications = db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT user_id FROM students WHERE id = ?)
+      AND kind IN ('homework_review', 'feedback_invite')
+    ORDER BY id DESC LIMIT 2
+  `).all(ids.assignedStudentId)
+  const invite = db.prepare(`
+    SELECT student_id, milestone, delivery_status
+    FROM feedback_invites WHERE student_id = ? AND milestone = 5
+  `).get(ids.assignedStudentId)
+  db.close()
+
+  assert.equal(homework.status, 'approved')
+  assert.deepEqual(review, {
+    teacher_id: ids.teacherId,
+    rating: 5,
+    comment: 'Отличная техника',
+    status: 'approved',
+  })
+  assert.deepEqual(audit, {
+    action: 'teacher_review_homework',
+    meta: JSON.stringify({ homework_id: homeworkId, status: 'approved' }),
+  })
+  assert.deepEqual(chat, {
+    student_id: ids.assignedStudentId,
+    text_content: '✅ Проверка ДЗ (урок №5): принято. Оценка: 5/5. Комментарий: Отличная техника',
+    content_type: 'system',
+  })
+  assert.deepEqual(notifications, [
+    {
+      kind: 'homework_review',
+      body: 'Задание по урок №5 принято. Оценка: 5 из 5.\nКомментарий: Отличная техника',
+      payload: JSON.stringify({ homework_id: homeworkId, status: 'approved' }),
+    },
+    {
+      kind: 'feedback_invite',
+      body: 'Урок №5 принят. Расскажите администратору, как проходит обучение. Отзыв недоступен преподавателю.',
+      payload: JSON.stringify({ screen: 'feedback' }),
+    },
+  ])
+  assert.deepEqual(invite, {
+    student_id: ids.assignedStudentId,
+    milestone: 5,
+    delivery_status: 'pending',
+  })
+  assert.deepEqual(sentNotifications.at(-1), {
+    telegramId: assignedStudentTelegramId,
+    message: '✅ Твое задание по урок №5 проверено.\nОценка: ⭐⭐⭐⭐⭐\nКомментарий: Отличная техника',
+  })
+})
+
+test('POST teacher/review возвращает работу на доработку по комментарию', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: ids.assignedStudentId,
+    lessonNumber: 6,
+  })
+  const response = await app.inject({
+    method: 'POST',
+    url: '/teacher/review',
+    headers: {
+      'x-web-session': teacherWebSessionToken,
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: teacherTelegramId,
+      homework_id: homeworkId,
+      comment: '  Исправьте форму  ',
+    },
+  })
+  assert.equal(response.statusCode, 200)
+
+  const db = new Database(databasePath, { readonly: true })
+  const homework = db.prepare('SELECT status FROM homeworks WHERE id = ?').get(homeworkId) as {
+    status: string
+  }
+  const review = db.prepare(`
+    SELECT rating, comment, status FROM homework_reviews WHERE homework_id = ?
+  `).get(homeworkId)
+  const notification = db.prepare(`
+    SELECT body, payload FROM app_notifications
+    WHERE kind = 'homework_review' AND payload LIKE ? ORDER BY id DESC LIMIT 1
+  `).get(`%\"homework_id\":${homeworkId}%`)
+  db.close()
+
+  assert.equal(homework.status, 'revision')
+  assert.deepEqual(review, {
+    rating: null,
+    comment: 'Исправьте форму',
+    status: 'rejected',
+  })
+  assert.deepEqual(notification, {
+    body: 'Задание по урок №6 нужно доработать.\nКомментарий: Исправьте форму',
+    payload: JSON.stringify({ homework_id: homeworkId, status: 'revision' }),
+  })
+})
+
+test('POST teacher/review позволяет администратору проверить любого активного ученика', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: ids.unassignedStudentId,
+    lessonNumber: 7,
+    isBonus: 1,
+  })
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/teacher/review',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: { telegram_id: adminTelegramId, homework_id: homeworkId, rating: 4 },
+  })
+  assert.equal(response.statusCode, 200)
+
+  const db = new Database(databasePath, { readonly: true })
+  const teacher = db.prepare(`
+    SELECT t.full_name, t.user_id
+    FROM teachers t JOIN users u ON u.id = t.user_id
+    WHERE u.telegram_id = ?
+  `).get(adminTelegramId) as { full_name: string; user_id: number }
+  const review = db.prepare(`
+    SELECT hr.rating, hr.status, t.user_id AS teacher_user_id
+    FROM homework_reviews hr JOIN teachers t ON t.id = hr.teacher_id
+    WHERE hr.homework_id = ?
+  `).get(homeworkId) as {
+    rating: number
+    status: string
+    teacher_user_id: number
+  }
+  const invite = db.prepare(`
+    SELECT id FROM feedback_invites WHERE student_id = ? AND milestone = 7
+  `).get(ids.unassignedStudentId)
+  db.close()
+
+  assert.equal(teacher.full_name, 'Админ Тестовый')
+  assert.equal(review.rating, 4)
+  assert.equal(review.status, 'approved')
+  assert.equal(review.teacher_user_id, teacher.user_id)
+  assert.equal(invite, undefined)
+})
+
+test('повторный milestone создаёт только одно приглашение к отзыву', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: ids.assignedStudentId,
+    lessonNumber: 5,
+  })
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/teacher/review',
+    headers: {
+      ...authHeaders(teacherTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: { telegram_id: teacherTelegramId, homework_id: homeworkId, rating: 4 },
+  })
+  assert.equal(response.statusCode, 200)
+
+  const db = new Database(databasePath, { readonly: true })
+  const inviteCount = (db.prepare(`
+    SELECT COUNT(*) AS count FROM feedback_invites
+    WHERE student_id = ? AND milestone = 5
+  `).get(ids.assignedStudentId) as { count: number }).count
+  const notificationCount = (db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications
+    WHERE user_id = (SELECT user_id FROM students WHERE id = ?)
+      AND kind = 'feedback_invite'
+  `).get(ids.assignedStudentId) as { count: number }).count
+  db.close()
+  assert.equal(inviteCount, 1)
+  assert.equal(notificationCount, 1)
+})
+
+test('POST teacher/review сохраняет validation, auth и domain-ошибки', async (context) => {
+  const injectReview = async (
+    payload: Record<string, unknown>,
+    telegramId?: number,
+  ) => await app.inject({
+    method: 'POST',
+    url: '/api/teacher/review',
+    headers: {
+      ...(telegramId == null ? {} : authHeaders(telegramId)),
+      'content-type': 'application/json',
+    },
+    payload,
+  })
+
+  await context.test('body проверяется до credential', async () => {
+    for (const payload of [
+      { telegram_id: teacherTelegramId, homework_id: 0, rating: 5 },
+      { telegram_id: teacherTelegramId, homework_id: 1, rating: 6 },
+      { telegram_id: teacherTelegramId, homework_id: 1, comment: 123 },
+    ]) {
+      const response = await injectReview(payload)
+      assert.equal(response.statusCode, 400)
+      assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+  await context.test('нет credential', async () => {
+    const response = await injectReview({
+      telegram_id: teacherTelegramId,
+      homework_id: 999999,
+      rating: 5,
+    })
+    assert.equal(response.statusCode, 401)
+  })
+  await context.test('пользователь не найден', async () => {
+    const response = await injectReview(
+      { telegram_id: 9999, homework_id: 999999, rating: 5 },
+      9999,
+    )
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Пользователь не найден.' })
+  })
+  await context.test('пользователь не преподаватель', async () => {
+    const response = await injectReview(
+      { telegram_id: ordinaryUserTelegramId, homework_id: 999999, rating: 5 },
+      ordinaryUserTelegramId,
+    )
+    assert.equal(response.statusCode, 403)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Доступ только для преподавателей.',
+    })
+  })
+  await context.test('задание не найдено', async () => {
+    const response = await injectReview(
+      { telegram_id: teacherTelegramId, homework_id: 999999, rating: 5 },
+      teacherTelegramId,
+    )
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Задание не найдено.' })
+  })
+  await context.test('задание уже проверено', async () => {
+    const response = await injectReview(
+      { telegram_id: teacherTelegramId, homework_id: ids.approvedId, rating: 5 },
+      teacherTelegramId,
+    )
+    assert.equal(response.statusCode, 409)
+    assert.deepEqual(response.json(), { ok: false, error: 'Это задание уже проверено.' })
+  })
+  await context.test('ученик не назначен преподавателю', async () => {
+    const homeworkId = createPendingHomework({
+      studentId: ids.unassignedStudentId,
+      lessonNumber: 8,
+    })
+    const response = await injectReview(
+      { telegram_id: teacherTelegramId, homework_id: homeworkId, rating: 5 },
+      teacherTelegramId,
+    )
+    assert.equal(response.statusCode, 403)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Ученик не прикреплён к этому преподавателю.',
+    })
+  })
+  await context.test('нужна оценка или непустой комментарий', async () => {
+    const homeworkId = createPendingHomework({
+      studentId: ids.assignedStudentId,
+      lessonNumber: 9,
+    })
+    const response = await injectReview(
+      { telegram_id: teacherTelegramId, homework_id: homeworkId, comment: '   ' },
+      teacherTelegramId,
+    )
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Укажите оценку или напишите комментарий.',
     })
   })
 })

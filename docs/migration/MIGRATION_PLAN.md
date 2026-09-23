@@ -66,7 +66,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `POST /api/admin/profile-edits/:id` реализован в ProfilesModule: approve атомарно переносит предложенные поля в student-профиль и завершает заявку, reject атомарно сохраняет комментарий, обе ветки фиксируют reviewer и best-effort аудит. Отсутствующее legacy-уведомление ученика и имя reject-события `profile_edit_rejectd` временно сохранены как `BUG-002`.
 - Семь оставшихся административных GET реализованы пакетом в `AdminModule`: заявки преподавателей, приватные отзывы, преподаватели, ученики, карточка ученика, все ДЗ и аудит. Для каждого сценария сохранён отдельный use case, общий Prisma repository загружает агрегаты без запросов из controller, а file availability вычисляется общим storage adapter. `BUG-001` исправлен: `studying` и `completed` теперь фильтруются точно.
 - Read-only кабинет преподавателя реализован пакетом в `TeacherCabinetModule`: dashboard, список учеников и детальная выдача работ. Общая policy ограничивает преподавателя назначенными активными учениками, а администратора без teacher-профиля допускает ко всем активным; Prisma repository формирует агрегаты, use cases — legacy-ответы, controller остаётся HTTP-границей.
-- Следующий маршрут — `POST /api/teacher/review`: транзакционная проверка работы, рейтинг, уведомления и feedback invite.
+- `POST /api/teacher/review` реализован в `TeacherCabinetModule`: use case сохраняет legacy-правила принятия/доработки и формирует сообщения, repository атомарно записывает проверку, статус, аудит, системное сообщение, in-app уведомление и одноразовый feedback invite, а Telegram-доставка выполняется через общий gateway после коммита.
+- Следующий маршрут — `POST /api/homeworks/:id/comments`: комментарий с общей проверкой доступа и уведомлением другой стороны.
 
 ### 5. Вывод legacy и миграция СУБД
 
