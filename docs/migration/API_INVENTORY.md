@@ -85,7 +85,7 @@
 | POST | `/api/teacher/about` | преподаватель | Изменение `about_me` | medium | legacy |
 | POST | `/api/student/profile-edit` | ученик `studying/completed` | Заявка на изменение профиля | high | legacy |
 | POST | `/api/student/me/avatar` | ученик | Загрузка, нормализация и замена аватара | high | legacy |
-| GET | `/api/student/me/avatar` | ученик | Собственный аватар | medium | legacy |
+| GET | `/api/student/me/avatar` | Telegram, VK или web-session с существующим student | Собственный локальный аватар с private cache | medium | nest-ready |
 | GET | `/api/students/:student_id/avatar` | владелец, назначенный преподаватель или администратор | Ролевой доступ к аватару | high | legacy |
 
 ## Регистрация и заявки преподавателей

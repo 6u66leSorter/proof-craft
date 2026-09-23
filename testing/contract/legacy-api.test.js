@@ -975,6 +975,59 @@ test('GET /api/guest/students/:id/avatar сохраняет ошибки нед�
   assert.deepEqual(invalid.body, { ok: false, error: 'Некорректные параметры запроса.' })
 })
 
+test('GET /api/student/me/avatar отдаёт собственный аватар с private cache', async () => {
+  const response = await getResponse('/api/student/me/avatar?telegram_id=3001', 3001)
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'image/jpeg')
+  assert.equal(response.headers.get('cache-control'), 'private, max-age=3600')
+  assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
+  assert.equal(await response.text(), 'approved file')
+})
+
+test('собственный аватар поддерживает web-session', async () => {
+  const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=3001`, {
+    headers: { 'X-Web-Session': testWebSessionToken },
+  })
+  assert.equal(response.status, 200)
+  assert.equal(await response.text(), 'approved file')
+})
+
+test('собственный аватар сохраняет validation, auth и not-found ошибки', async (context) => {
+  await context.test('нет telegram_id', async () => {
+    const { response, body } = await getJson('/api/student/me/avatar')
+    assert.equal(response.status, 400)
+    assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await getJson('/api/student/me/avatar?telegram_id=3001')
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const { response } = await getJson('/api/student/me/avatar?telegram_id=3001', 3002)
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const { response, body } = await getJson('/api/student/me/avatar?telegram_id=9999', 9999)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('у ученика нет аватара', async () => {
+    const { response, body } = await getJson('/api/student/me/avatar?telegram_id=3002', 3002)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Аватар не установлен.' })
+  })
+
+  await context.test('у пользователя нет student-профиля', async () => {
+    const { response, body } = await getJson('/api/student/me/avatar?telegram_id=2001', 2001)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Аватар не установлен.' })
+  })
+})
+
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {
   const studentsResult = await getJson('/api/guest/portfolio-students')
   const student = studentsResult.body.data.students.find((item) => item.full_name === 'Анна Ученица')

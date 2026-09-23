@@ -16,6 +16,14 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-23 — Перенос собственного аватара ученика
+
+- **Цель:** перенести `GET /api/student/me/avatar`, сохранив credential-проверку, private cache и безопасную выдачу локального файла.
+- **Сделано:** добавлен отдельный `StudentAvatarsModule` с тонким controller, application use case и Prisma repository. Student-профиль ищется по внутреннему user ID проверенного principal; файл открывает общий storage adapter. Сохранены legacy-ответы для неизвестного пользователя, отсутствующего student-профиля, пустого avatar ID и отсутствующего файла.
+- **Проверка:** legacy — 81 успешный тест и 4 целевых TODO; NestJS — 120 успешных тестов. Проверены Telegram/web-session, nginx-путь, body, JPEG MIME, private cache, CORP и ошибки `400/401/403/404`; прошли Prisma validation, typecheck, lint и обе production-сборки.
+- **Вывод:** маршрут имеет статус `nest-ready`; production routing, схема БД и Prisma migrations не менялись.
+- **Следующий шаг:** перенести `GET /api/students/:student_id/avatar` с ролевой проверкой владельца, назначенного преподавателя и администратора.
+
 ### 2026-09-23 — Перенос авторизованного вложения работы
 
 - **Цель:** перенести `GET /api/homeworks/:homeworkId/attachments/:attachmentId/file`, сохранив проверку принадлежности вложения и ролевую матрицу.

@@ -57,7 +57,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `GET /api/homeworks/:id/file` реализован в NestJS: основной local/Telegram-файл и JPEG-preview доступны только владельцу, назначенному преподавателю или администратору.
 - `GET /api/homeworks/:homeworkId/revision/file` реализован в том же модуле: файл исправления переиспользует access boundary, local/Telegram storage и preview.
 - `GET /api/homeworks/:homeworkId/attachments/:attachmentId/file` реализован в том же модуле: вложение обязано принадлежать работе, а доступ, local/Telegram storage и photo preview переиспользуют общие границы.
-- Следующий маршрут — `GET /api/student/me/avatar`: собственный аватар ученика через общую identity- и storage-логику.
+- `GET /api/student/me/avatar` реализован в отдельном StudentAvatarsModule: student определяется по внутреннему user ID проверенного principal, а файл безопасно открывается общим storage adapter.
+- Следующий маршрут — `GET /api/students/:student_id/avatar`: ролевой доступ к аватару владельцу, назначенному преподавателю и администратору.
 
 ### 5. Вывод legacy и миграция СУБД
 
