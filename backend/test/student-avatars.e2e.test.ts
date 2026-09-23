@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import test, { after, before } from 'node:test'
 import Database from 'better-sqlite3'
+import multipart from '@fastify/multipart'
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
+import { getMultipartOptions } from '../src/common/multipart-options.js'
 import { createLegacyDatabase } from './support/legacy-database.js'
 
 const botToken = '123456:nest-student-avatar-token'
@@ -17,11 +19,14 @@ const noAvatarTelegramId = 6102
 const missingFileTelegramId = 6103
 const teacherTelegramId = 6201
 const adminTelegramId = 6301
+const testImageSvg =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="red"/></svg>'
 
 type FixtureIds = {
   ownerStudent: number
   noAvatarStudent: number
   missingFileStudent: number
+  ownerAvatarFile: string
 }
 
 let temporaryRoot: string
@@ -85,7 +90,7 @@ const seedStudentAvatars = (databasePath: string): FixtureIds => {
     VALUES (?, ?, datetime('now', '+1 day'))
   `).run(ownerUser, crypto.createHash('sha256').update(webSessionToken).digest('hex'))
   db.close()
-  return { ownerStudent, noAvatarStudent, missingFileStudent }
+  return { ownerStudent, noAvatarStudent, missingFileStudent, ownerAvatarFile: avatarFile }
 }
 
 const buildTelegramInitData = (telegramUserId: number): string => {
@@ -107,6 +112,36 @@ const authHeaders = (telegramId: number): Record<string, string> => ({
   'x-telegram-init-data': buildTelegramInitData(telegramId),
 })
 
+const multipartFile = (
+  content: string,
+  filename = 'avatar.svg',
+  contentType = 'image/svg+xml',
+): { headers: Record<string, string>; payload: Buffer } => {
+  const boundary = `proof-craft-${crypto.randomUUID()}`
+  return {
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n` +
+        content +
+        `\r\n--${boundary}--\r\n`,
+    ),
+  }
+}
+
+const multipartWithoutFile = (): { headers: Record<string, string>; payload: Buffer } => {
+  const boundary = `proof-craft-${crypto.randomUUID()}`
+  return {
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.from(
+      `--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="description"\r\n\r\n' +
+        `no file\r\n--${boundary}--\r\n`,
+    ),
+  }
+}
+
 before(async () => {
   const fixture = await createLegacyDatabase('proof-craft-student-avatars-')
   temporaryRoot = fixture.temporaryRoot
@@ -116,9 +151,11 @@ before(async () => {
   process.env.TELEGRAM_BOT_TOKEN = ''
   process.env.VITE_TELEGRAM_BOT_TOKEN = ''
   process.env.TG_WEBAPP_AUTH = 'strict'
+  process.env.MAX_HOMEWORK_UPLOAD_MB = '0.001'
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
   app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+  await app.register(multipart, getMultipartOptions())
   await app.init()
   await app.getHttpAdapter().getInstance().ready()
 })
@@ -337,4 +374,138 @@ test('ролевой аватар сохраняет validation, auth и пор�
     assert.equal(response.statusCode, 404)
     assert.deepEqual(response.json(), { ok: false, error: 'Файл аватара не найден.' })
   })
+})
+
+test('загрузка аватара сохраняет validation, auth и role ошибки', async (context) => {
+  await context.test('нет telegram_id', async () => {
+    const multipartBody = multipartWithoutFile()
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/student/me/avatar',
+      headers: multipartBody.headers,
+      payload: multipartBody.payload,
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const multipartBody = multipartWithoutFile()
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/student/me/avatar?telegram_id=${ownerTelegramId}`,
+      headers: multipartBody.headers,
+      payload: multipartBody.payload,
+    })
+    assert.equal(response.statusCode, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const multipartBody = multipartWithoutFile()
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/student/me/avatar?telegram_id=${ownerTelegramId}`,
+      headers: { ...multipartBody.headers, ...authHeaders(noAvatarTelegramId) },
+      payload: multipartBody.payload,
+    })
+    assert.equal(response.statusCode, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const unknownTelegramId = 9999
+    const multipartBody = multipartWithoutFile()
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/student/me/avatar?telegram_id=${unknownTelegramId}`,
+      headers: { ...multipartBody.headers, ...authHeaders(unknownTelegramId) },
+      payload: multipartBody.payload,
+    })
+    assert.equal(response.statusCode, 404)
+    assert.deepEqual(response.json(), { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не ученик', async () => {
+    const multipartBody = multipartWithoutFile()
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/student/me/avatar?telegram_id=${teacherTelegramId}`,
+      headers: { ...multipartBody.headers, ...authHeaders(teacherTelegramId) },
+      payload: multipartBody.payload,
+    })
+    assert.equal(response.statusCode, 403)
+    assert.deepEqual(response.json(), { ok: false, error: 'Только ученики могут менять аватар.' })
+  })
+})
+
+test('загрузка аватара различает отсутствие, размер и обработку файла', async (context) => {
+  await context.test('файл не передан', async () => {
+    const multipartBody = multipartWithoutFile()
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/student/me/avatar?telegram_id=${ownerTelegramId}`,
+      headers: { ...multipartBody.headers, ...authHeaders(ownerTelegramId) },
+      payload: multipartBody.payload,
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Файл не получен.' })
+  })
+
+  await context.test('файл слишком большой', async () => {
+    const multipartBody = multipartFile('x'.repeat(2_048), 'large.png', 'image/png')
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/student/me/avatar?telegram_id=${ownerTelegramId}`,
+      headers: { ...multipartBody.headers, ...authHeaders(ownerTelegramId) },
+      payload: multipartBody.payload,
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Файл слишком большой.' })
+  })
+
+  await context.test('файл не является изображением', async () => {
+    const multipartBody = multipartFile('not an image', 'broken.png', 'image/png')
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/student/me/avatar?telegram_id=${ownerTelegramId}`,
+      headers: { ...multipartBody.headers, ...authHeaders(ownerTelegramId) },
+      payload: multipartBody.payload,
+    })
+    assert.equal(response.statusCode, 500)
+    assert.deepEqual(response.json(), { ok: false, error: 'Ошибка обработки изображения.' })
+  })
+
+  assert.equal(existsSync(fixtureIds.ownerAvatarFile), true)
+})
+
+test('POST /api/student/me/avatar нормализует и безопасно заменяет аватар', async () => {
+  const multipartBody = multipartFile(testImageSvg)
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/student/me/avatar?telegram_id=${ownerTelegramId}`,
+    headers: { ...multipartBody.headers, ...authHeaders(ownerTelegramId) },
+    payload: multipartBody.payload,
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+  assert.equal(existsSync(fixtureIds.ownerAvatarFile), false)
+
+  const avatar = await app.inject({
+    method: 'GET',
+    url: `/api/student/me/avatar?telegram_id=${ownerTelegramId}`,
+    headers: authHeaders(ownerTelegramId),
+  })
+  assert.equal(avatar.statusCode, 200)
+  assert.deepEqual([...avatar.rawPayload.subarray(0, 2)], [0xff, 0xd8])
+})
+
+test('загрузка аватара поддерживает web-session и nginx-путь', async () => {
+  const multipartBody = multipartFile(testImageSvg)
+  const response = await app.inject({
+    method: 'POST',
+    url: `/student/me/avatar?telegram_id=${ownerTelegramId}`,
+    headers: { ...multipartBody.headers, 'x-web-session': webSessionToken },
+    payload: multipartBody.payload,
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
 })

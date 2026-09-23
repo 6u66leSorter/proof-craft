@@ -1,4 +1,5 @@
 export type StudentAvatar = {
+  studentId: number
   avatarFileId: string | null
 }
 
@@ -14,4 +15,6 @@ export abstract class StudentAvatarRepository {
     studentId: number,
     userId: number | null,
   ): Promise<StudentAvatarAccess | null>
+
+  abstract updateAvatar(studentId: number, avatarFileId: string): Promise<void>
 }

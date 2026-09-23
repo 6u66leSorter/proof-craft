@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import { cp, mkdtemp, rm, symlink } from 'node:fs/promises'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -56,10 +56,12 @@ const seedLegacyDatabase = (databasePath) => {
   const uploadsDir = join(dirname(databasePath), 'uploads')
   mkdirSync(uploadsDir, { recursive: true })
   const approvedFilePath = join(uploadsDir, 'approved.txt')
+  const avatarFilePath = join(uploadsDir, 'avatar.jpg')
   const pendingFilePath = join(uploadsDir, 'pending.txt')
   const revisionFilePath = join(uploadsDir, 'revision.svg')
   const secondStudentFilePath = join(uploadsDir, 'second-student.txt')
   writeFileSync(approvedFilePath, 'approved file')
+  writeFileSync(avatarFilePath, 'avatar file')
   writeFileSync(pendingFilePath, testImageSvg)
   writeFileSync(revisionFilePath, testImageSvg)
   writeFileSync(secondStudentFilePath, 'second student file')
@@ -138,7 +140,7 @@ const seedLegacyDatabase = (databasePath) => {
   `).run(7001, studentOneUserId)
   db.prepare(`
     UPDATE students SET student_track = 'intern', about_me = ?, avatar_file_id = ? WHERE id = ?
-  `).run('О студенте', approvedFilePath, studentOneId)
+  `).run('О студенте', avatarFilePath, studentOneId)
   const insertReview = db.prepare(`
     INSERT INTO homework_reviews (homework_id, teacher_id, rating, comment, status, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -255,6 +257,7 @@ const seedLegacyDatabase = (databasePath) => {
     studentCommentId,
     teacherCommentId,
     approvedFilePath,
+    avatarFilePath,
     pendingFilePath,
     revisionFilePath,
   }
@@ -342,6 +345,7 @@ before(async () => {
       VK_APP_ID: '54558405',
       VK_APP_SECRET: testVkSecret,
       VK_ID_OFFSET: '10000000000',
+      MAX_HOMEWORK_UPLOAD_MB: '0.001',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -962,7 +966,7 @@ test('GET /api/guest/students/:id/avatar фиксирует публичные �
   assert.equal(response.headers.get('content-type'), 'image/jpeg')
   assert.equal(response.headers.get('cache-control'), 'public, max-age=3600')
   assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
-  assert.equal(await response.text(), 'approved file')
+  assert.equal(await response.text(), 'avatar file')
 })
 
 test('GET /api/guest/students/:id/avatar сохраняет ошибки недоступного аватара', async () => {
@@ -981,7 +985,7 @@ test('GET /api/student/me/avatar отдаёт собственный авата�
   assert.equal(response.headers.get('content-type'), 'image/jpeg')
   assert.equal(response.headers.get('cache-control'), 'private, max-age=3600')
   assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
-  assert.equal(await response.text(), 'approved file')
+  assert.equal(await response.text(), 'avatar file')
 })
 
 test('собственный аватар поддерживает web-session', async () => {
@@ -989,7 +993,7 @@ test('собственный аватар поддерживает web-session',
     headers: { 'X-Web-Session': testWebSessionToken },
   })
   assert.equal(response.status, 200)
-  assert.equal(await response.text(), 'approved file')
+  assert.equal(await response.text(), 'avatar file')
 })
 
 test('собственный аватар сохраняет validation, auth и not-found ошибки', async (context) => {
@@ -1036,7 +1040,7 @@ test('владелец, назначенный преподаватель и а�
     assert.equal(response.headers.get('content-type'), 'image/jpeg')
     assert.equal(response.headers.get('cache-control'), 'private, max-age=3600')
     assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
-    assert.equal(await response.text(), 'approved file')
+    assert.equal(await response.text(), 'avatar file')
   }
 })
 
@@ -1046,7 +1050,7 @@ test('ролевой аватар поддерживает web-session влад�
     { headers: { 'X-Web-Session': testWebSessionToken } },
   )
   assert.equal(response.status, 200)
-  assert.equal(await response.text(), 'approved file')
+  assert.equal(await response.text(), 'avatar file')
 })
 
 test('посторонний ученик и неназначенный преподаватель не читают аватар', async () => {
@@ -1116,6 +1120,122 @@ test('ролевой аватар сохраняет validation, auth и пор�
     assert.equal(response.status, 404)
     assert.deepEqual(body, { ok: false, error: 'Аватар не установлен.' })
   })
+})
+
+test('загрузка аватара сохраняет validation, auth и role ошибки', async (context) => {
+  await context.test('нет telegram_id', async () => {
+    const response = await fetch(`${baseUrl}/api/student/me/avatar`, {
+      method: 'POST',
+      body: new FormData(),
+    })
+    assert.equal(response.status, 400)
+    assert.deepEqual(await response.json(), { ok: false, error: 'Некорректные параметры запроса.' })
+  })
+
+  await context.test('нет credential', async () => {
+    const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=3001`, {
+      method: 'POST',
+      body: new FormData(),
+    })
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=3001`, {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': buildTelegramInitData(3002) },
+      body: new FormData(),
+    })
+    assert.equal(response.status, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=9999`, {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': buildTelegramInitData(9999) },
+      body: new FormData(),
+    })
+    assert.equal(response.status, 404)
+    assert.deepEqual(await response.json(), { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не ученик', async () => {
+    const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=2001`, {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': buildTelegramInitData(2001) },
+      body: new FormData(),
+    })
+    assert.equal(response.status, 403)
+    assert.deepEqual(await response.json(), { ok: false, error: 'Только ученики могут менять аватар.' })
+  })
+})
+
+test('загрузка аватара различает отсутствие, размер и обработку файла', async (context) => {
+  await context.test('файл не передан', async () => {
+    const form = new FormData()
+    form.set('description', 'без файла')
+    const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=3001`, {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': buildTelegramInitData(3001) },
+      body: form,
+    })
+    assert.equal(response.status, 400)
+    assert.deepEqual(await response.json(), { ok: false, error: 'Файл не получен.' })
+  })
+
+  await context.test('файл слишком большой', async () => {
+    const form = new FormData()
+    form.set('file', new Blob(['x'.repeat(2_048)], { type: 'image/png' }), 'large.png')
+    const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=3001`, {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': buildTelegramInitData(3001) },
+      body: form,
+    })
+    assert.equal(response.status, 400)
+    assert.deepEqual(await response.json(), { ok: false, error: 'Файл слишком большой.' })
+  })
+
+  await context.test('файл не является изображением', async () => {
+    const form = new FormData()
+    form.set('file', new Blob(['not an image'], { type: 'image/png' }), 'broken.png')
+    const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=3001`, {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': buildTelegramInitData(3001) },
+      body: form,
+    })
+    assert.equal(response.status, 500)
+    assert.deepEqual(await response.json(), { ok: false, error: 'Ошибка обработки изображения.' })
+  })
+})
+
+test('POST /api/student/me/avatar нормализует и заменяет аватар', async () => {
+  const form = new FormData()
+  form.set('file', new Blob([testImageSvg], { type: 'image/svg+xml' }), 'avatar.svg')
+  const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=3001`, {
+    method: 'POST',
+    headers: { 'X-Telegram-Init-Data': buildTelegramInitData(3001) },
+    body: form,
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+  assert.equal(existsSync(fixtureIds.avatarFilePath), false)
+
+  const avatar = await getResponse('/api/student/me/avatar?telegram_id=3001', 3001)
+  assert.equal(avatar.status, 200)
+  assert.equal(avatar.headers.get('content-type'), 'image/jpeg')
+  assert.deepEqual([...new Uint8Array(await avatar.arrayBuffer()).slice(0, 2)], [0xff, 0xd8])
+})
+
+test('загрузка аватара поддерживает web-session', async () => {
+  const form = new FormData()
+  form.set('file', new Blob([testImageSvg], { type: 'image/svg+xml' }), 'avatar.svg')
+  const response = await fetch(`${baseUrl}/api/student/me/avatar?telegram_id=3001`, {
+    method: 'POST',
+    headers: { 'X-Web-Session': testWebSessionToken },
+    body: form,
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
 })
 
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {

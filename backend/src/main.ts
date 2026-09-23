@@ -1,7 +1,9 @@
 import 'reflect-metadata'
+import multipart from '@fastify/multipart'
 import { NestFactory } from '@nestjs/core'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from './app.module.js'
+import { getMultipartOptions } from './common/multipart-options.js'
 
 const parsePort = (value: string | undefined): number => {
   const port = Number(value ?? 8788)
@@ -16,6 +18,7 @@ const bootstrap = async (): Promise<void> => {
     AppModule,
     new FastifyAdapter({ logger: false }),
   )
+  await app.register(multipart, getMultipartOptions())
   app.enableCors({
     origin: true,
     methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
