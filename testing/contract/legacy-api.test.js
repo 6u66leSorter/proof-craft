@@ -78,6 +78,9 @@ const seedLegacyDatabase = (databasePath) => {
   const teacherUserId = Number(insertUser.run(2001, 'Ирина', 'Преподаватель', 'teacher').lastInsertRowid)
   const studentOneUserId = Number(insertUser.run(3001, 'Анна', 'Ученица', 'student').lastInsertRowid)
   const studentTwoUserId = Number(insertUser.run(3002, 'Мария', 'Ученица', 'student').lastInsertRowid)
+  const teacherApplicantUserId = Number(
+    insertUser.run(4001, 'Олег', 'Кандидат', 'guest').lastInsertRowid,
+  )
 
   insertRole.run(adminUserId, 'admin')
   insertRole.run(teacherUserId, 'teacher')
@@ -254,6 +257,39 @@ const seedLegacyDatabase = (databasePath) => {
     crypto.createHash('sha256').update(testAdminWebSessionToken).digest('hex'),
   )
 
+  const approvedTeacherApplicationId = Number(db.prepare(`
+    INSERT INTO teacher_applications
+      (applicant_user_id, full_name, phone, status, created_at, updated_at)
+    VALUES (?, 'Ирина Преподаватель', '+79995550001', 'approved',
+      '2026-09-20 10:00:00', '2026-09-20 11:00:00')
+  `).run(teacherUserId).lastInsertRowid)
+  const pendingTeacherApplicationId = Number(db.prepare(`
+    INSERT INTO teacher_applications
+      (applicant_user_id, full_name, phone, status, created_at, updated_at)
+    VALUES (?, 'Олег Кандидат', '+79995550002', 'pending',
+      '2026-09-23 10:00:00', '2026-09-23 10:00:00')
+  `).run(teacherApplicantUserId).lastInsertRowid)
+
+  const insertFeedback = db.prepare(`
+    INSERT INTO private_feedback (student_id, request_key, subject, message, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `)
+  const feedbackIds = []
+  for (let index = 1; index <= 51; index += 1) {
+    feedbackIds.push(Number(insertFeedback.run(
+      studentOneId,
+      `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      index % 2 ? 'academy' : 'teacher',
+      `Отзыв ${index}`,
+      `2026-09-23 09:${String(index).padStart(2, '0')}:00`,
+    ).lastInsertRowid))
+  }
+  db.prepare(`
+    INSERT INTO audit_log (actor_user_id, action, meta, created_at)
+    VALUES (?, 'admin_fixture_old', NULL, '2026-09-20 09:00:00'),
+           (?, 'admin_fixture_new', '{"source":"contract"}', '2026-09-23 09:00:00')
+  `).run(adminUserId, adminUserId)
+
   db.close()
   return {
     approvedHomeworkId,
@@ -277,6 +313,9 @@ const seedLegacyDatabase = (databasePath) => {
     avatarFilePath,
     pendingFilePath,
     revisionFilePath,
+    approvedTeacherApplicationId,
+    pendingTeacherApplicationId,
+    feedbackIds,
   }
 }
 
@@ -1440,6 +1479,207 @@ test('POST /api/teacher/about сохраняет validation, auth и role оши
       })
     })
   }
+})
+
+test('GET /api/admin/teacher-applications возвращает только pending-заявки', async () => {
+  const { response, body } = await getJson('/api/admin/teacher-applications?telegram_id=1001', 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      applications: [{
+        id: fixtureIds.pendingTeacherApplicationId,
+        full_name: 'Олег Кандидат',
+        phone: '+79995550002',
+        telegram_id: 4001,
+        created_at: '2026-09-23 10:00:00',
+      }],
+    },
+  })
+})
+
+test('GET /api/admin/feedback сохраняет cursor-пагинацию по 50 записей', async () => {
+  const first = await getJson('/api/admin/feedback?telegram_id=1001', 1001)
+  assert.equal(first.response.status, 200)
+  assert.equal(first.body.data.items.length, 50)
+  assert.deepEqual(first.body.data.items[0], {
+    id: fixtureIds.feedbackIds[50],
+    subject: 'academy',
+    message: 'Отзыв 51',
+    created_at: '2026-09-23 09:51:00',
+    full_name: 'Анна Ученица',
+  })
+  assert.equal(first.body.data.next, fixtureIds.feedbackIds[1])
+
+  const second = await getJson(
+    `/api/admin/feedback?telegram_id=1001&before=${first.body.data.next}`,
+    1001,
+  )
+  assert.deepEqual(second.body.data, {
+    items: [{
+      id: fixtureIds.feedbackIds[0],
+      subject: 'academy',
+      message: 'Отзыв 1',
+      created_at: '2026-09-23 09:01:00',
+      full_name: 'Анна Ученица',
+    }],
+    next: null,
+  })
+})
+
+test('GET /api/admin/teachers возвращает преподавателей, телефон и активных учеников', async () => {
+  const response = await fetch(`${baseUrl}/api/admin/teachers?telegram_id=1001`, {
+    headers: { 'X-Web-Session': testAdminWebSessionToken },
+  })
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.deepEqual(body.data.teachers, [{
+    id: body.data.teachers[0].id,
+    user_id: body.data.teachers[0].user_id,
+    full_name: 'Ирина Преподаватель',
+    phone: '+79995550001',
+    telegram_id: 2001,
+    username: null,
+    students_count: 1,
+    students: [{
+      id: fixtureIds.studentOneId,
+      full_name: 'Анна Ученица',
+      telegram_id: 3001,
+      username: null,
+    }],
+  }])
+})
+
+test('GET /api/admin/students возвращает административный агрегат', async () => {
+  const { response, body } = await getJson('/api/admin/students?telegram_id=1001', 1001)
+  assert.equal(response.status, 200)
+  assert.equal(body.data.students.length, 2)
+  const anna = body.data.students.find((student) => student.id === fixtureIds.studentOneId)
+  assert.deepEqual(anna, {
+    id: fixtureIds.studentOneId,
+    user_id: anna.user_id,
+    full_name: 'Анна Ученица',
+    phone: '+79990000001',
+    telegram_id: 3001,
+    username: null,
+    first_name: 'Анна',
+    last_name: 'Ученица',
+    lessons_count: 10,
+    status: 'studying',
+    student_track: 'intern',
+    teachers: [{ id: anna.teachers[0].id, full_name: 'Ирина Преподаватель' }],
+    teacher_ids: [anna.teachers[0].id],
+    average_rating: 4.5,
+    ratings_count: 2,
+    pending_homeworks_count: 1,
+    has_avatar: true,
+  })
+})
+
+test('GET /api/admin/student/:student_id возвращает профиль и полный агрегат работ', async () => {
+  const { response, body } = await getJson(
+    `/api/admin/student/${fixtureIds.studentOneId}?telegram_id=1001`,
+    1001,
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.data.student.id, fixtureIds.studentOneId)
+  assert.equal(body.data.student.metro, 'Центральная')
+  assert.equal(body.data.student.about_me, 'О студенте')
+  assert.deepEqual(
+    body.data.homeworks.map((homework) => homework.id),
+    [
+      fixtureIds.pendingHomeworkId,
+      fixtureIds.revisionHomeworkId,
+      fixtureIds.approvedHomeworkId,
+      fixtureIds.approvedDocumentHomeworkId,
+    ],
+  )
+  const approved = body.data.homeworks.find((homework) => homework.id === fixtureIds.approvedHomeworkId)
+  assert.equal(approved.review_count, 2)
+  assert.equal(approved.latest_review.id, fixtureIds.latestApprovedReviewId)
+  assert.equal(approved.comments.length, 2)
+  assert.deepEqual(approved.attachments.map(({ id }) => id), [
+    fixtureIds.localAttachmentId,
+    fixtureIds.telegramAttachmentId,
+  ])
+})
+
+test('GET /api/admin/homeworks сохраняет общий и фильтрованный контракты', async () => {
+  const all = await getJson('/api/admin/homeworks?telegram_id=1001', 1001)
+  assert.equal(all.response.status, 200)
+  assert.equal(all.body.data.homeworks.length, 5)
+  const approved = all.body.data.homeworks.find(
+    (homework) => homework.id === fixtureIds.approvedHomeworkId,
+  )
+  assert.equal(approved.student_name, 'Анна Ученица')
+  assert.equal(approved.reviews.length, 2)
+  assert.equal(approved.extra_files_count, 2)
+
+  const filtered = await getJson(
+    `/api/admin/homeworks?telegram_id=1001&student_id=${fixtureIds.studentOneId}`,
+    1001,
+  )
+  assert.deepEqual(
+    filtered.body.data.homeworks.map((homework) => homework.id),
+    [
+      fixtureIds.pendingHomeworkId,
+      fixtureIds.revisionHomeworkId,
+      fixtureIds.approvedHomeworkId,
+      fixtureIds.approvedDocumentHomeworkId,
+    ],
+  )
+  assert.equal(Object.hasOwn(filtered.body.data.homeworks[0], 'student_name'), false)
+
+  const emptyFilter = await getJson(
+    '/api/admin/homeworks?telegram_id=1001&student_id=',
+    1001,
+  )
+  assert.equal(emptyFilter.body.data.homeworks.length, 5)
+})
+
+test('GET /api/admin/audit возвращает raw meta и соблюдает limit', async () => {
+  const { response, body } = await getJson('/api/admin/audit?telegram_id=1001&limit=1', 1001)
+  assert.equal(response.status, 200)
+  assert.equal(body.data.entries.length, 1)
+  assert.deepEqual(body.data.entries[0], {
+    id: body.data.entries[0].id,
+    action: 'admin_fixture_new',
+    meta: '{"source":"contract"}',
+    created_at: '2026-09-23 09:00:00',
+    actor_user_id: body.data.entries[0].actor_user_id,
+    actor_telegram_id: 1001,
+  })
+})
+
+test('административные GET сохраняют validation, auth, role и not-found ошибки', async (context) => {
+  for (const path of [
+    '/api/admin/feedback?telegram_id=1001&before=0',
+    '/api/admin/students?telegram_id=1001&status=unknown',
+    '/api/admin/student/nope?telegram_id=1001',
+    '/api/admin/homeworks?telegram_id=1001&student_id=0',
+    '/api/admin/audit?telegram_id=1001&limit=201',
+  ]) {
+    await context.test(`validation: ${path}`, async () => {
+      const { response, body } = await getJson(path)
+      assert.equal(response.status, 400)
+      assert.deepEqual(body, { ok: false, error: 'Некорректные параметры запроса.' })
+    })
+  }
+
+  await context.test('нет credential', async () => {
+    const { response } = await getJson('/api/admin/teachers?telegram_id=1001')
+    assert.equal(response.status, 401)
+  })
+  await context.test('не администратор', async () => {
+    const { response, body } = await getJson('/api/admin/teachers?telegram_id=3001', 3001)
+    assert.equal(response.status, 403)
+    assert.deepEqual(body, { ok: false, error: 'Доступ только для администраторов.' })
+  })
+  await context.test('ученик не найден', async () => {
+    const { response, body } = await getJson('/api/admin/student/999999?telegram_id=1001', 1001)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Ученик не найден.' })
+  })
 })
 
 test('POST /api/student/profile-edit создаёт pending-заявку, аудит и уведомление администратору', async () => {
