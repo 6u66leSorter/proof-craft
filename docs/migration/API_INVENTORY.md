@@ -122,7 +122,7 @@
 | POST | `/api/admin/students` | Telegram, VK или web-session; роль admin | Транзакционная модерация, смена статуса, назначения при approve, аудит и уведомление ученика | high | nest-ready |
 | GET | `/api/admin/homeworks` | Telegram, VK или web-session; роль admin | Все либо отфильтрованные работы, проверки и вложения | high | nest-ready |
 | GET | `/api/admin/audit` | Telegram, VK или web-session; роль admin | Аудит действий с лимитом 1–200 и raw JSON meta | medium | nest-ready |
-| POST | `/api/admin/teachers` | администратор | Назначение или снятие роли преподавателя | high | legacy |
+| POST | `/api/admin/teachers` | Telegram, VK или web-session; роль admin | Назначение роли и профиля; при снятии — удаление роли и активных назначений без потери профиля и проверок | high | nest-ready |
 | POST | `/api/admin/assign-student` | администратор | Закрепление ученика | high | legacy |
 | POST | `/api/admin/unassign-student` | администратор | Снятие закрепления | high | legacy |
 

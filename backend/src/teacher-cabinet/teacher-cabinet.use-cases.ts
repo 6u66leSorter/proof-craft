@@ -19,8 +19,18 @@ const resolveTeacherId = async (
       HttpStatus.NOT_FOUND,
     )
   }
-  const teacherId = await repository.findTeacherIdByUserId(principal.user.id)
-  if (teacherId == null && !principal.user.roles.includes('admin')) {
+  const isAdmin = principal.user.roles.includes('admin')
+  const isTeacher = principal.user.roles.includes('teacher')
+  if (!isTeacher && !isAdmin) {
+    throw new HttpException(
+      { ok: false, error: 'Доступ только для преподавателей.' },
+      HttpStatus.FORBIDDEN,
+    )
+  }
+  const teacherId = isTeacher
+    ? await repository.findTeacherIdByUserId(principal.user.id)
+    : null
+  if (teacherId == null && !isAdmin) {
     throw new HttpException(
       { ok: false, error: 'Доступ только для преподавателей.' },
       HttpStatus.FORBIDDEN,

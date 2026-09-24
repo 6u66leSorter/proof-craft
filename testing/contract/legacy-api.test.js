@@ -2042,6 +2042,140 @@ test('POST /api/admin/students сохраняет validation, auth и domain-о�
   })
 })
 
+test('POST /api/admin/teachers назначает роль, создаёт профиль и уведомляет', async () => {
+  const targetTelegramId = 9101
+  const db = new Database(legacyDatabasePath)
+  const targetUserId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, 'Новый', 'Преподаватель', 'guest')
+  `).run(targetTelegramId).lastInsertRowid)
+  db.close()
+
+  const { response, body } = await postJson('/api/admin/teachers', {
+    telegram_id: 1001,
+    target_telegram_id: String(targetTelegramId),
+    action: 'assign',
+    full_name: '  Контрактный Преподаватель  ',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const verification = new Database(legacyDatabasePath, { readonly: true })
+  const role = verification.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ? AND role = 'teacher'
+  `).get(targetUserId)
+  const teacher = verification.prepare(`
+    SELECT id, full_name FROM teachers WHERE user_id = ?
+  `).get(targetUserId)
+  const audit = verification.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notification = verification.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(targetUserId)
+  verification.close()
+
+  assert.deepEqual(role, { role: 'teacher' })
+  assert.equal(teacher.full_name, 'Контрактный Преподаватель')
+  assert.deepEqual(audit, {
+    action: 'admin_teacher_assign',
+    meta: JSON.stringify({ target_telegram_id: targetTelegramId }),
+  })
+  assert.deepEqual(notification, {
+    kind: 'teacher_role_assigned',
+    body: 'Вам назначена роль преподавателя. Откройте мини-приложение для проверки работ.',
+    payload: '{}',
+  })
+})
+
+test('legacy SEC-003: снятие роли удаляет профиль и исторические проверки', async () => {
+  const targetTelegramId = 9101
+  const db = new Database(legacyDatabasePath)
+  const target = db.prepare(`
+    SELECT u.id AS user_id, t.id AS teacher_id
+    FROM users u JOIN teachers t ON t.user_id = u.id
+    WHERE u.telegram_id = ?
+  `).get(targetTelegramId)
+  db.prepare(`
+    INSERT INTO student_teachers (student_id, teacher_id) VALUES (?, ?)
+  `).run(fixtureIds.studentOneId, target.teacher_id)
+  const reviewId = Number(db.prepare(`
+    INSERT INTO homework_reviews
+      (homework_id, teacher_id, rating, comment, status)
+    VALUES (?, ?, 5, 'Историческая проверка', 'approved')
+  `).run(fixtureIds.approvedHomeworkId, target.teacher_id).lastInsertRowid)
+  db.close()
+
+  const { response, body } = await postJson('/api/admin/teachers', {
+    telegram_id: 1001,
+    target_telegram_id: targetTelegramId,
+    action: 'remove',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const verification = new Database(legacyDatabasePath, { readonly: true })
+  const role = verification.prepare(`
+    SELECT 1 FROM user_roles WHERE user_id = ? AND role = 'teacher'
+  `).get(target.user_id)
+  const teacher = verification.prepare('SELECT 1 FROM teachers WHERE id = ?')
+    .get(target.teacher_id)
+  const assignment = verification.prepare(`
+    SELECT 1 FROM student_teachers WHERE teacher_id = ?
+  `).get(target.teacher_id)
+  const review = verification.prepare('SELECT 1 FROM homework_reviews WHERE id = ?')
+    .get(reviewId)
+  verification.close()
+
+  assert.equal(role, undefined)
+  assert.equal(teacher, undefined)
+  assert.equal(assignment, undefined)
+  assert.equal(review, undefined)
+})
+
+test('POST /api/admin/teachers сохраняет validation, auth и domain-ошибки', async (context) => {
+  const validBody = {
+    telegram_id: 1001,
+    target_telegram_id: 9999,
+    action: 'assign',
+  }
+
+  await context.test('body проверяется до credential', async () => {
+    for (const body of [
+      { ...validBody, target_telegram_id: 0 },
+      { ...validBody, action: 'archive' },
+      { ...validBody, full_name: null },
+    ]) {
+      const result = await postJson('/api/admin/teachers', body)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+  await context.test('нет credential', async () => {
+    assert.equal((await postJson('/api/admin/teachers', validBody)).response.status, 401)
+  })
+  await context.test('credential не совпадает', async () => {
+    assert.equal((await postJson('/api/admin/teachers', validBody, 3001)).response.status, 403)
+  })
+  await context.test('пользователь не администратор', async () => {
+    const result = await postJson('/api/admin/teachers', {
+      telegram_id: 3001,
+      target_telegram_id: 9999,
+      action: 'assign',
+    }, 3001)
+    assert.equal(result.response.status, 403)
+  })
+  await context.test('целевой пользователь не найден', async () => {
+    const result = await postJson('/api/admin/teachers', validBody, 1001)
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Пользователь не найден. Попросите его отправить /start боту.',
+    })
+  })
+})
+
 test('POST /api/student/profile-edit создаёт pending-заявку, аудит и уведомление администратору', async () => {
   const { response, body } = await postJson(
     '/api/student/profile-edit',
@@ -3077,5 +3211,6 @@ test('legacy SEC-001: публичная файловая ручка сейча�
 test.todo('SEC-001: публичный профиль должен возвращать только approved-работы')
 test.todo('SEC-001: публичная файловая ручка должна отклонять не-approved работу')
 test.todo('SEC-002: преподаватель должен получать чаты только назначенных учеников')
+test.todo('SEC-003: снятие роли преподавателя должно сохранять профиль и исторические проверки')
 test.todo('BUG-001: admin/students должен точно фильтровать studying и completed')
 test.todo('BUG-002: обработка profile edit должна уведомлять ученика')

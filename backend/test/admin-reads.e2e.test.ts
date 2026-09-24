@@ -711,3 +711,209 @@ test('POST admin/students сохраняет validation, auth и domain-ошиб
     })
   })
 })
+
+test('POST admin/teachers сохраняет validation, auth и domain-ошибки', async (context) => {
+  const injectRoleChange = async (
+    payload: Record<string, unknown>,
+    telegramId?: number,
+  ) => await app.inject({
+    method: 'POST',
+    url: '/api/admin/teachers',
+    headers: {
+      ...(telegramId == null ? {} : authHeaders(telegramId)),
+      'content-type': 'application/json',
+    },
+    payload,
+  })
+  const valid = {
+    telegram_id: adminTelegramId,
+    target_telegram_id: 999999,
+    action: 'assign',
+  }
+
+  await context.test('body проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, target_telegram_id: 0 },
+      { ...valid, action: 'archive' },
+      { ...valid, full_name: null },
+    ]) {
+      const response = await injectRoleChange(payload)
+      assert.equal(response.statusCode, 400)
+      assert.deepEqual(response.json(), {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  assert.equal((await injectRoleChange(valid)).statusCode, 401)
+  assert.equal((await injectRoleChange(valid, studentTelegramId)).statusCode, 403)
+
+  const nonAdmin = await injectRoleChange({
+    telegram_id: studentTelegramId,
+    target_telegram_id: 999999,
+    action: 'assign',
+  }, studentTelegramId)
+  assert.equal(nonAdmin.statusCode, 403)
+  assert.deepEqual(nonAdmin.json(), {
+    ok: false,
+    error: 'Доступ только для администраторов.',
+  })
+
+  const missing = await injectRoleChange(valid, adminTelegramId)
+  assert.equal(missing.statusCode, 404)
+  assert.deepEqual(missing.json(), {
+    ok: false,
+    error: 'Пользователь не найден. Попросите его отправить /start боту.',
+  })
+})
+
+test('POST admin/teachers деактивирует роль без потери профиля и истории', async () => {
+  const assignedMessage =
+    'Вам назначена роль преподавателя. Откройте мини-приложение для проверки работ.'
+  const removedMessage =
+    'Роль преподавателя снята. Если это ошибка — свяжитесь с администратором.'
+
+  const assignExisting = await app.inject({
+    method: 'POST',
+    url: '/api/admin/teachers',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      target_telegram_id: String(teacherTelegramId),
+      action: 'assign',
+      full_name: 'Не должно перезаписаться',
+    },
+  })
+  assert.equal(assignExisting.statusCode, 200)
+  assert.deepEqual(assignExisting.json(), { ok: true })
+
+  const remove = await app.inject({
+    method: 'POST',
+    url: '/admin/teachers',
+    headers: {
+      'x-web-session': adminWebSessionToken,
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      target_telegram_id: teacherTelegramId,
+      action: 'remove',
+    },
+  })
+  assert.equal(remove.statusCode, 200)
+  assert.deepEqual(remove.json(), { ok: true })
+
+  let db = new Database(databasePath, { readonly: true })
+  const teacherAfterRemoval = db.prepare(`
+    SELECT id, full_name FROM teachers WHERE id = ?
+  `).get(ids.teacherId)
+  const roleAfterRemoval = db.prepare(`
+    SELECT 1 FROM user_roles ur
+    JOIN teachers t ON t.user_id = ur.user_id
+    WHERE t.id = ? AND ur.role = 'teacher'
+  `).get(ids.teacherId)
+  const assignmentsAfterRemoval = db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers WHERE teacher_id = ?
+  `).get(ids.teacherId) as { count: number }
+  const reviewsAfterRemoval = db.prepare(`
+    SELECT COUNT(*) AS count FROM homework_reviews WHERE teacher_id = ?
+  `).get(ids.teacherId) as { count: number }
+  const auditAfterRemoval = db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notificationAfterRemoval = db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT user_id FROM teachers WHERE id = ?)
+    ORDER BY id DESC LIMIT 1
+  `).get(ids.teacherId)
+  db.close()
+
+  assert.deepEqual(teacherAfterRemoval, {
+    id: ids.teacherId,
+    full_name: '  Teacher   Profile  ',
+  })
+  assert.equal(roleAfterRemoval, undefined)
+  assert.equal(assignmentsAfterRemoval.count, 0)
+  assert.equal(reviewsAfterRemoval.count, 3)
+  assert.deepEqual(auditAfterRemoval, {
+    action: 'admin_teacher_remove',
+    meta: JSON.stringify({ target_telegram_id: teacherTelegramId }),
+  })
+  assert.deepEqual(notificationAfterRemoval, {
+    kind: 'teacher_role_removed',
+    body: removedMessage,
+    payload: '{}',
+  })
+  assert.deepEqual(sentNotifications.at(-1), {
+    telegramId: teacherTelegramId,
+    message: removedMessage,
+  })
+
+  const hidden = await app.inject({
+    method: 'GET',
+    url: `/api/admin/teachers?telegram_id=${adminTelegramId}`,
+    headers: authHeaders(adminTelegramId),
+  })
+  assert.equal(hidden.statusCode, 200)
+  assert.deepEqual(hidden.json().data.teachers, [])
+
+  const denied = await app.inject({
+    method: 'GET',
+    url: `/api/teacher/dashboard?telegram_id=${teacherTelegramId}`,
+    headers: authHeaders(teacherTelegramId),
+  })
+  assert.equal(denied.statusCode, 403)
+  assert.deepEqual(denied.json(), {
+    ok: false,
+    error: 'Доступ только для преподавателей.',
+  })
+
+  const session = await app.inject({
+    method: 'GET',
+    url: `/api/session?telegram_id=${teacherTelegramId}`,
+    headers: authHeaders(teacherTelegramId),
+  })
+  assert.equal(session.statusCode, 200)
+  assert.equal(session.json().data.isTeacher, false)
+  assert.equal(session.json().data.teacher, null)
+
+  const assignAgain = await app.inject({
+    method: 'POST',
+    url: '/api/admin/teachers',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      target_telegram_id: teacherTelegramId,
+      action: 'assign',
+    },
+  })
+  assert.equal(assignAgain.statusCode, 200)
+  assert.deepEqual(assignAgain.json(), { ok: true })
+
+  db = new Database(databasePath, { readonly: true })
+  const restoredRole = db.prepare(`
+    SELECT role FROM user_roles ur
+    JOIN teachers t ON t.user_id = ur.user_id
+    WHERE t.id = ? AND ur.role = 'teacher'
+  `).get(ids.teacherId)
+  const restoredTeacher = db.prepare(`
+    SELECT id, full_name FROM teachers WHERE id = ?
+  `).get(ids.teacherId)
+  const restoredReviews = db.prepare(`
+    SELECT COUNT(*) AS count FROM homework_reviews WHERE teacher_id = ?
+  `).get(ids.teacherId) as { count: number }
+  db.close()
+  assert.deepEqual(restoredRole, { role: 'teacher' })
+  assert.deepEqual(restoredTeacher, teacherAfterRemoval)
+  assert.equal(restoredReviews.count, 3)
+  assert.deepEqual(sentNotifications.at(-1), {
+    telegramId: teacherTelegramId,
+    message: assignedMessage,
+  })
+})

@@ -32,7 +32,10 @@ export class PrismaAdminStudentModerationRepository
 
   async findFirstMissingTeacherId(teacherIds: number[]): Promise<number | null> {
     const teachers = await this.prisma.teachers.findMany({
-      where: { id: { in: teacherIds } },
+      where: {
+        id: { in: teacherIds },
+        users: { user_roles: { some: { role: 'teacher' } } },
+      },
       select: { id: true },
     })
     const existing = new Set(teachers.map(({ id }) => id))

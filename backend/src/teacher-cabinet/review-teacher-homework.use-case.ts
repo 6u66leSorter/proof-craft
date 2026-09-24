@@ -26,9 +26,16 @@ export class ReviewTeacherHomeworkUseCase {
     }
 
     const isAdmin = principal.user.roles.includes('admin')
-    let teacherId = await this.teacherCabinet.findTeacherIdByUserId(
-      principal.user.id,
-    )
+    const isTeacher = principal.user.roles.includes('teacher')
+    if (!isTeacher && !isAdmin) {
+      throw new HttpException(
+        { ok: false, error: 'Доступ только для преподавателей.' },
+        HttpStatus.FORBIDDEN,
+      )
+    }
+    let teacherId = isTeacher
+      ? await this.teacherCabinet.findTeacherIdByUserId(principal.user.id)
+      : null
     if (teacherId == null && !isAdmin) {
       throw new HttpException(
         { ok: false, error: 'Доступ только для преподавателей.' },
