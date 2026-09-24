@@ -18,6 +18,17 @@ test.describe('преподаватель', () => {
     await snap('teacher-notifications')
   })
 
+  test('поиск учеников', async ({ snap, page }) => {
+    await tab(page, 'Ученики')
+    await page.getByRole('button', { name: 'Найти ученика' }).click()
+    await page.getByRole('searchbox', { name: 'Имя или фамилия ученика' }).fill('анна')
+    await expect(page.getByText('Найдено: 1 из 1')).toBeVisible()
+    await snap('teacher-students-search')
+    await page.getByRole('button', { name: /^Стажёр/ }).click()
+    await expect(page.getByText('В этой категории никого не нашли')).toBeVisible()
+    await snap('teacher-students-search-empty')
+  })
+
   test('ученик, его работа и чат', async ({ snap, page }) => {
     await tab(page, 'Ученики')
     await page.locator('.card', { hasText: 'Анна Смирнова' }).first().click()

@@ -7,6 +7,7 @@ import { compressImageToJpegFile } from '../../domain/image'
 import { clearAuthImages } from '../../ui/AuthImg'
 import { toast } from '../../ui/toast'
 import { fetchStudentHomeworks } from '../student/api'
+import { fetchTeacherStudentHomeworks, teacherStudentHomeworksKey } from '../teacher/api'
 
 const MAX_PHOTOS = 5
 const UPLOAD_TIMEOUT_MS = 15 * 60 * 1000
@@ -25,6 +26,18 @@ async function refreshStudentHomework(queryClient: QueryClient, homeworkId: numb
   const items = await queryClient.fetchQuery({ queryKey: ['student', 'homeworks', appUserId], queryFn: fetchStudentHomeworks, staleTime: 0 })
   const refreshed = items.find((x) => Number(x.id) === Number(homeworkId))
   if (refreshed) useApp.getState().patch({ selectedHomework: refreshed })
+}
+
+/** Перечитать работы ученика, открытого у преподавателя; возвращает свежую работу. */
+async function refreshTeacherHomework(queryClient: QueryClient, homeworkId: number) {
+  const studentId = useApp.getState().teacherStudentId
+  if (studentId == null) return null
+  const data = await queryClient.fetchQuery({
+    queryKey: teacherStudentHomeworksKey(studentId),
+    queryFn: () => fetchTeacherStudentHomeworks(studentId),
+    staleTime: 0,
+  })
+  return data.homeworks.find((x) => Number(x.id) === Number(homeworkId)) ?? null
 }
 
 // ——— Новое ДЗ ———
@@ -144,7 +157,12 @@ export async function addHomeworkComment(queryClient: QueryClient, homeworkId: n
   const { platform, appUserId, session } = useApp.getState()
   try {
     await apiPost(platform, `/api/homeworks/${encodeURIComponent(homeworkId)}/comments`, { telegram_id: appUserId, text_content: content })
-    if (session?.student?.id) await refreshStudentHomework(queryClient, homeworkId)
+    if (useApp.getState().teacherStudentId != null) {
+      const refreshed = await refreshTeacherHomework(queryClient, homeworkId)
+      if (refreshed) useApp.getState().patch({ selectedHomework: refreshed })
+    } else if (session?.student?.id) {
+      await refreshStudentHomework(queryClient, homeworkId)
+    }
     toast('Комментарий отправлен')
     return true
   } catch (error) {
@@ -190,6 +208,8 @@ export async function saveHomeworkReview(queryClient: QueryClient, homeworkId: n
       comment: text ?? undefined,
     })
     toast(grade ? 'Задание принято' : 'Комментарий сохранён')
+    // Legacy перечитывает список работ ученика у преподавателя, но открытую работу не обновляет (перенесено 1 в 1).
+    await refreshTeacherHomework(queryClient, homeworkId)
     if (session?.student?.id) await refreshStudentHomework(queryClient, homeworkId)
     await refreshSessionQuiet()
   } catch (error) {

@@ -21,7 +21,7 @@ function NotificationCard({ n }: { n: AppNotification }) {
     n.kind === 'feedback_invite' && isStudent
       ? () => useApp.getState().go('feedback')
       : clickable
-        ? () => void openHwFromNotif(queryClient, n, hwId)
+        ? () => void openHwFromNotif(queryClient, n, hwId, studentId)
         : null
   const unread = !n.read_at
   return (

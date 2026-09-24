@@ -17,6 +17,8 @@ export type WebLoginState = {
   token: string | null
 }
 
+export type StudentSearchState = { open: boolean; query: string; track: 'student' | 'intern' | 'barber' }
+
 export type HwEditState = {
   open: boolean
   busy: boolean
@@ -72,6 +74,10 @@ type AppState = Selection & {
   hwNewDraft: { url: string; file: File }[]
   /** Модалка редактирования ДЗ на проверке. */
   hwEdit: HwEditState
+  /** Поиск и категория в списках учеников преподавателя и администратора. */
+  studentSearch: Record<'teacher' | 'admin', StudentSearchState>
+  /** Ученик, чьи работы открыты у преподавателя (legacy `teacherStudentHomeworks.student`). */
+  teacherStudentId: number | null
   /** Просмотр фото поверх экрана; сбрасывается при любом переходе. */
   lightbox: { items: PhotoItem[]; index: number } | null
   /** Категория учеников в гостевой витрине. */
@@ -106,6 +112,11 @@ export const useApp = create<AppState>()((set, get) => ({
   feedback: { subject: 'teacher', message: '', key: null, busy: false, sent: false, error: '' },
   vkLinkGenerate: { loading: false, token: null, expiresAt: null, error: '' },
   imageEpoch: 0,
+  studentSearch: {
+    teacher: { open: false, query: '', track: 'student' },
+    admin: { open: false, query: '', track: 'student' },
+  },
+  teacherStudentId: null,
   hwSubmit: { status: 'idle', error: '' },
   hwSubmitAbort: null,
   hwNewDraft: [],

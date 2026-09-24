@@ -7,6 +7,9 @@ import { GuestPortfolioScreen } from '../features/guest/GuestPortfolioScreen'
 import { GuestStudentScreen } from '../features/guest/GuestStudentScreen'
 import { HomeworkNewScreen } from '../features/homework/HomeworkNewScreen'
 import { HomeworkViewScreen } from '../features/homework/HomeworkViewScreen'
+import { StaffChatScreen } from '../features/chat/StaffChatScreen'
+import { TeacherScreen } from '../features/teacher/TeacherScreen'
+import { TeacherStudentScreen } from '../features/teacher/TeacherStudentScreen'
 import { FeedbackScreen } from '../features/student/FeedbackScreen'
 import { StudentScreen } from '../features/student/StudentScreen'
 import { getTelegram } from '../platform/telegram'
@@ -39,6 +42,13 @@ function Screen({ name }: { name: ScreenName }) {
       return <HomeworkViewScreen />
     case 'hw-new':
       return <HomeworkNewScreen />
+    case 'teacher':
+      return <TeacherScreen />
+    case 't-student':
+      return <TeacherStudentScreen />
+    case 'teacher-chat':
+    case 'admin-chat':
+      return <StaffChatScreen />
     case 'guest':
       return <GuestPortfolioScreen />
     case 'guest-student':

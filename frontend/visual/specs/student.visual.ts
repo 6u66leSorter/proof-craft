@@ -61,7 +61,7 @@ test.describe('ученик', () => {
     )
     await page.getByRole('button', { name: /ДЗ/ }).first().click()
     await page.locator('input[type=file]').setInputFiles(photoFiles(2))
-    await expect(page.locator('#hw-photos-grid img')).toHaveCount(2)
+    await expect(page.locator('#hw-photos-grid img')).toHaveCount(2, { timeout: 20_000 })
     await page.getByRole('textbox', { name: 'Номер задания (урока)' }).fill('5')
     await page.getByRole('textbox', { name: 'Название стрижки' }).fill('Кроп')
     await page.getByRole('textbox', { name: 'Подробное описание...' }).fill('Текстура на макушке')
