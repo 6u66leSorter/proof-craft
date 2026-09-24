@@ -16,6 +16,14 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-24 — Чтение чатов и вложений
+
+- **Цель:** перенести единым пакетом `GET /api/chats/students`, `GET /api/chats/messages` и `GET /api/chats/messages/:id/file`, сохранив legacy-контракт и закрыв подтверждённый `SEC-002`.
+- **Сделано:** добавлен `ChatModule` с guard-проверками `CHAT_ENABLED` и параметров, общим `ChatAccessPolicy`, отдельными use cases, mapper сообщений и Prisma repository. Сохранены последние сообщения по возрастанию, `limit`, подписи/роли отправителей, точные ошибки и local/Telegram-файлы через общий storage boundary. Ученик видит свой чат, администратор — все, преподаватель — только назначенных учеников.
+- **Проверка:** legacy — 250 успешных тестов и 7 целевых TODO; NestJS — 284 успешных теста. Characterization и e2e покрывают роли, сортировку, `limit`, Telegram/VK/web-session, nginx-пути, `CHAT_ENABLED`, validation/auth/domain-порядок, локальный файл и исправление `SEC-002`. Также прошли ESLint, backend typecheck, Prisma validate, backend/frontend production-сборки и `git diff --check`.
+- **Вывод:** три read-маршрута получили статус `nest-ready`; теперь готовы 46 из 58 маршрутов, 12 остаются на legacy. Схема БД, Prisma migrations, `prisma db push` и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/chats/messages` в существующий `ChatModule`, не начиная работу без подтверждения пользователя.
+
 ### 2026-09-24 — Регистрация ученика и приватная обратная связь
 
 - **Цель:** ускоренным пакетом перенести `POST /api/students` и `POST /api/student/feedback`, не меняя проверенный legacy-контракт.

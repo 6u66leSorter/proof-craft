@@ -46,10 +46,10 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| GET | `/api/chats/students` | пользователь чата | Доступные чаты учеников | high | covered |
-| GET | `/api/chats/messages` | участник чата | История сообщений | high | legacy |
+| GET | `/api/chats/students` | student — свой; teacher — назначенные; admin — все активные | Доступные чаты учеников с исправлением `SEC-002` | high | nest-ready |
+| GET | `/api/chats/messages` | владелец, назначенный преподаватель или администратор | Последние сообщения по возрастанию, роли отправителей и `limit` | high | nest-ready |
 | POST | `/api/chats/messages` | участник чата | Multipart-сообщение, файл, уведомления | high | legacy |
-| GET | `/api/chats/messages/:id/file` | участник чата | Локальный или Telegram-файл | high | legacy |
+| GET | `/api/chats/messages/:id/file` | владелец, назначенный преподаватель или администратор | Безопасный local/Telegram-файл через общий storage boundary | high | nest-ready |
 
 ## Домашние задания и файлы
 

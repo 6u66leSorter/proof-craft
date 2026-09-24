@@ -75,7 +75,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `POST /api/teacher-application` реализован в новом `RegistrationModule`: guard сохраняет порядок schema/auth/domain validation, use case нормализует ФИО и телефон, а Prisma repository одной транзакцией создаёт либо обновляет identity, заменяет pending-заявку и пишет app-уведомления всем администраторам. Telegram-доставка выполняется после коммита; поддержаны Telegram, VK, web-session и nginx-путь.
 - `POST /api/students` реализован в `RegistrationModule`: body guard сохраняет порядок schema/auth/domain validation, use case нормализует ФИО, телефон, число занятий и метро, а Prisma repository атомарно создаёт identity, роли, student-профиль и app-уведомления администраторам. Повторная заявка сохраняет оба legacy-варианта `409`, Telegram отправляется после коммита; поддержаны Telegram, VK, web-session и nginx-путь.
 - `POST /api/student/feedback` реализован там же: только проверенный principal с student-профилем может атомарно и идемпотентно сохранить приватное сообщение по `request_key`; ответ и порядок validation/auth сохранены.
-- Следующий блок — три маршрута чатов: список сообщений, отправка multipart-сообщения и выдача файла. `GET /api/chats/students` уже покрыт characterization-тестами и будет включён в общий chat-модуль.
+- Read-пакет чатов реализован в новом `ChatModule`: `GET /api/chats/students`, `GET /api/chats/messages` и `GET /api/chats/messages/:id/file` используют общий `ChatAccessPolicy`, mapper сообщений и Prisma repository. Сохранены сортировка, `limit`, роли отправителей, порядок validation/auth/domain, `CHAT_ENABLED`, local/Telegram storage и nginx-путь; `SEC-002` исправлен ограничением преподавателя назначенными учениками.
+- Следующий блок — `POST /api/chats/messages`: multipart-текст/вложение, безопасная запись файла, атомарное сообщение с app-уведомлениями и best-effort внешние side effects.
 
 ### 5. Вывод legacy и миграция СУБД
 

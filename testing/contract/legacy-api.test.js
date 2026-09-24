@@ -63,11 +63,13 @@ const seedLegacyDatabase = (databasePath) => {
   const pendingFilePath = join(uploadsDir, 'pending.txt')
   const revisionFilePath = join(uploadsDir, 'revision.svg')
   const secondStudentFilePath = join(uploadsDir, 'second-student.txt')
+  const chatFilePath = join(uploadsDir, 'chat-file.txt')
   writeFileSync(approvedFilePath, 'approved file')
   writeFileSync(avatarFilePath, 'avatar file')
   writeFileSync(pendingFilePath, testImageSvg)
   writeFileSync(revisionFilePath, testImageSvg)
   writeFileSync(secondStudentFilePath, 'second student file')
+  writeFileSync(chatFilePath, 'chat file')
   const insertUser = db.prepare(`
     INSERT INTO users (telegram_id, first_name, last_name, role)
     VALUES (?, ?, ?, ?)
@@ -104,6 +106,44 @@ const seedLegacyDatabase = (databasePath) => {
 
   db.prepare('INSERT INTO student_teachers (student_id, teacher_id) VALUES (?, ?)')
     .run(studentOneId, teacherId)
+
+  const insertChatMessage = db.prepare(`
+    INSERT INTO chat_messages
+      (student_id, sender_user_id, text_content, content_type, file_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  const studentChatMessageId = Number(insertChatMessage.run(
+    studentOneId,
+    studentOneUserId,
+    'Сообщение ученика',
+    'text',
+    null,
+    '2026-09-24 08:00:00',
+  ).lastInsertRowid)
+  const teacherChatFileMessageId = Number(insertChatMessage.run(
+    studentOneId,
+    teacherUserId,
+    'Файл преподавателя',
+    'document',
+    chatFilePath,
+    '2026-09-24 08:01:00',
+  ).lastInsertRowid)
+  const adminChatMessageId = Number(insertChatMessage.run(
+    studentOneId,
+    adminUserId,
+    'Сообщение администратора',
+    'text',
+    null,
+    '2026-09-24 08:02:00',
+  ).lastInsertRowid)
+  const systemChatMessageId = Number(insertChatMessage.run(
+    studentOneId,
+    adminUserId,
+    'Системное сообщение',
+    'system',
+    null,
+    '2026-09-24 08:03:00',
+  ).lastInsertRowid)
 
   const insertHomework = db.prepare(`
     INSERT INTO homeworks
@@ -316,6 +356,11 @@ const seedLegacyDatabase = (databasePath) => {
     approvedTeacherApplicationId,
     pendingTeacherApplicationId,
     feedbackIds,
+    studentChatMessageId,
+    teacherChatFileMessageId,
+    adminChatMessageId,
+    systemChatMessageId,
+    chatFilePath,
   }
 }
 
@@ -3903,6 +3948,199 @@ test('legacy SEC-002: преподаватель сейчас получает �
   const { response, body } = await getJson('/api/chats/students?telegram_id=2001', 2001)
   assert.equal(response.status, 200)
   assert.equal(body.data.students.length, 2)
+})
+
+test('GET /api/chats/students сохраняет списки ученика и администратора', async () => {
+  const student = await getJson('/api/chats/students?telegram_id=3001', 3001)
+  assert.equal(student.response.status, 200)
+  assert.deepEqual(student.body, {
+    ok: true,
+    data: {
+      students: [
+        { id: fixtureIds.studentOneId, full_name: 'Анна Ученица', status: 'studying' },
+      ],
+    },
+  })
+
+  const admin = await getJson('/api/chats/students?telegram_id=1001', 1001)
+  assert.equal(admin.response.status, 200)
+  assert.deepEqual(
+    admin.body.data.students.map(({ id, status }) => ({ id, status })),
+    [
+      { id: fixtureIds.studentOneId, status: 'studying' },
+      { id: fixtureIds.studentTwoId, status: 'studying' },
+    ],
+  )
+  assert.deepEqual(
+    admin.body.data.students.map(({ full_name }) => full_name),
+    [...admin.body.data.students.map(({ full_name }) => full_name)].sort(),
+  )
+})
+
+test('GET /api/chats/messages сохраняет сортировку, limit и маппинг отправителей', async () => {
+  const { response, body } = await getJson(
+    `/api/chats/messages?telegram_id=3001&student_id=${fixtureIds.studentOneId}`,
+    3001,
+  )
+  assert.equal(response.status, 200)
+  const fixtureMessages = body.data.messages.filter(
+    ({ id }) => id <= fixtureIds.systemChatMessageId,
+  )
+  assert.deepEqual(fixtureMessages, [
+    {
+      id: fixtureIds.studentChatMessageId,
+      student_id: fixtureIds.studentOneId,
+      sender_user_id: fixtureMessages[0].sender_user_id,
+      sender_name: 'Анна Ученица',
+      sender_role: 'ученик',
+      sender_role_key: 'student',
+      sender_role_color: 'var(--gold)',
+      sender_telegram_id: 3001,
+      text_content: 'Сообщение ученика',
+      content_type: 'text',
+      has_file: false,
+      created_at: '2026-09-24 08:00:00',
+    },
+    {
+      id: fixtureIds.teacherChatFileMessageId,
+      student_id: fixtureIds.studentOneId,
+      sender_user_id: fixtureMessages[1].sender_user_id,
+      sender_name: 'Ирина Преподаватель',
+      sender_role: 'преподаватель',
+      sender_role_key: 'teacher',
+      sender_role_color: 'var(--success)',
+      sender_telegram_id: 2001,
+      text_content: 'Файл преподавателя',
+      content_type: 'document',
+      has_file: true,
+      created_at: '2026-09-24 08:01:00',
+    },
+    {
+      id: fixtureIds.adminChatMessageId,
+      student_id: fixtureIds.studentOneId,
+      sender_user_id: fixtureMessages[2].sender_user_id,
+      sender_name: 'Админ Тестовый',
+      sender_role: 'админ',
+      sender_role_key: 'admin',
+      sender_role_color: 'var(--danger)',
+      sender_telegram_id: 1001,
+      text_content: 'Сообщение администратора',
+      content_type: 'text',
+      has_file: false,
+      created_at: '2026-09-24 08:02:00',
+    },
+    {
+      id: fixtureIds.systemChatMessageId,
+      student_id: fixtureIds.studentOneId,
+      sender_user_id: fixtureMessages[3].sender_user_id,
+      sender_name: 'Система',
+      sender_role: 'система',
+      sender_role_key: 'system',
+      sender_role_color: 'var(--dim)',
+      sender_telegram_id: 1001,
+      text_content: 'Системное сообщение',
+      content_type: 'system',
+      has_file: false,
+      created_at: '2026-09-24 08:03:00',
+    },
+  ])
+
+  const db = new Database(legacyDatabasePath)
+  const insertMessage = db.prepare(`
+    INSERT INTO chat_messages
+      (student_id, sender_user_id, text_content, content_type, created_at)
+    VALUES (?, (SELECT id FROM users WHERE telegram_id = 3001), ?, 'text', ?)
+  `)
+  const penultimateId = Number(insertMessage.run(
+    fixtureIds.studentOneId,
+    'Предпоследнее контрактное сообщение',
+    '2026-09-24 23:58:00',
+  ).lastInsertRowid)
+  const latestId = Number(insertMessage.run(
+    fixtureIds.studentOneId,
+    'Последнее контрактное сообщение',
+    '2026-09-24 23:59:00',
+  ).lastInsertRowid)
+  db.close()
+
+  const limited = await getJson(
+    `/api/chats/messages?telegram_id=3001&student_id=${fixtureIds.studentOneId}&limit=2`,
+    3001,
+  )
+  assert.equal(limited.response.status, 200)
+  assert.deepEqual(
+    limited.body.data.messages.map((message) => message.id),
+    [penultimateId, latestId],
+  )
+})
+
+test('GET /api/chats/messages сохраняет legacy-матрицу доступа и ошибки', async () => {
+  const teacher = await getJson(
+    `/api/chats/messages?telegram_id=2001&student_id=${fixtureIds.studentTwoId}`,
+    2001,
+  )
+  assert.equal(teacher.response.status, 200)
+  assert.ok(
+    teacher.body.data.messages.every(
+      ({ student_id }) => student_id === fixtureIds.studentTwoId,
+    ),
+  )
+
+  const outsider = await getJson(
+    `/api/chats/messages?telegram_id=3002&student_id=${fixtureIds.studentOneId}`,
+    3002,
+  )
+  assert.equal(outsider.response.status, 403)
+  assert.deepEqual(outsider.body, {
+    ok: false,
+    error: 'Нет доступа к чату этого ученика.',
+  })
+
+  const invalid = await getJson('/api/chats/messages?telegram_id=3001&student_id=nope')
+  assert.equal(invalid.response.status, 400)
+  assert.deepEqual(invalid.body, { ok: false, error: 'Некорректные параметры запроса.' })
+
+  const missingUser = await getJson(
+    `/api/chats/messages?telegram_id=9999&student_id=${fixtureIds.studentOneId}`,
+    9999,
+  )
+  assert.equal(missingUser.response.status, 404)
+  assert.deepEqual(missingUser.body, { ok: false, error: 'Пользователь не найден.' })
+})
+
+test('GET /api/chats/messages/:id/file сохраняет файл, доступ и порядок ошибок', async () => {
+  for (const telegramId of [3001, 2001, 1001]) {
+    const response = await getResponse(
+      `/api/chats/messages/${fixtureIds.teacherChatFileMessageId}/file?telegram_id=${telegramId}`,
+      telegramId,
+    )
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('content-type'), 'application/octet-stream')
+    assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
+    assert.equal(await response.text(), 'chat file')
+  }
+
+  const outsider = await getJson(
+    `/api/chats/messages/${fixtureIds.teacherChatFileMessageId}/file?telegram_id=3002`,
+    3002,
+  )
+  assert.equal(outsider.response.status, 403)
+  assert.deepEqual(outsider.body, { ok: false, error: 'Нет доступа к этому вложению.' })
+
+  const noFile = await getJson(
+    `/api/chats/messages/${fixtureIds.studentChatMessageId}/file?telegram_id=3001`,
+    3001,
+  )
+  assert.equal(noFile.response.status, 404)
+  assert.deepEqual(noFile.body, { ok: false, error: 'Вложение недоступно.' })
+
+  const missing = await getJson('/api/chats/messages/999999/file?telegram_id=3001', 3001)
+  assert.equal(missing.response.status, 404)
+  assert.deepEqual(missing.body, { ok: false, error: 'Сообщение не найдено.' })
+
+  const invalid = await getJson('/api/chats/messages/nope/file?telegram_id=3001')
+  assert.equal(invalid.response.status, 400)
+  assert.deepEqual(invalid.body, { ok: false, error: 'Некорректные параметры запроса.' })
 })
 
 test('legacy BUG-001: фильтр completed сейчас возвращает и studying-учеников', async () => {
