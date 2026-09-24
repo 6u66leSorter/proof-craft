@@ -2,7 +2,7 @@ import { openFile } from '../api/files'
 import type { MediaButton } from '../domain/homework'
 import { toast } from './toast'
 
-/** Кнопки открытия файлов работы (legacy `renderHomeworkMediaButtons`). */
+/** Кнопки открытия файлов работы. */
 export function MediaButtons({ buttons }: { buttons: MediaButton[] }) {
   if (!buttons.length) return null
   return (

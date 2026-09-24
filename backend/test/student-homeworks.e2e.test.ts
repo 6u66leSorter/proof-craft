@@ -8,7 +8,7 @@ import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-student-homeworks-token'
 const webSessionToken = 'nest-student-homeworks-web-session'
@@ -199,7 +199,7 @@ const authHeaders = (telegramId = aliceTelegramId): Record<string, string> => ({
 })
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-student-homeworks-')
+  const fixture = await createTestDatabase('proof-craft-student-homeworks-')
   temporaryRoot = fixture.temporaryRoot
   fixtureIds = seedStudentHomeworks(fixture.databasePath)
   process.env.DATABASE_URL = `file:${fixture.databasePath}`

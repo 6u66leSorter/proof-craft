@@ -6,7 +6,7 @@ export type Conversation =
   | { type: 'review'; step: 'rating' | 'comment'; homeworkId: number; action: 'approve' | 'comment'; rating: number | null }
 
 /**
- * Незавершённые диалоги (ввод Telegram ID, оценки, комментария). Как в legacy, хранятся в памяти
+ * Незавершённые диалоги (ввод Telegram ID, оценки, комментария). Хранятся в памяти
  * процесса бота и теряются при перезапуске.
  */
 @Injectable()

@@ -9,7 +9,7 @@ import { useStudentHomeworks, type StudentHomework } from './api'
 
 const hasFile = (f: { has_local_file?: boolean; has_telegram_file?: boolean }) => Boolean(f.has_local_file || f.has_telegram_file)
 
-/** Превью и число фото работы (legacy `homeworkPortfolioPhotoMeta`). */
+/** Превью и число фото работы. */
 export function homeworkPhotoMeta(hw: StudentHomework) {
   const primary = hw.content_type === 'photo' && hasFile(hw)
   const extra = (hw.attachments ?? []).filter((a) => a.content_type === 'photo' && hasFile(a))
@@ -100,7 +100,7 @@ function HomeworkCard({ hw }: { hw: StudentHomework }) {
   )
 }
 
-/** Сетка работ ученика (legacy `renderStudentHomeworksList`). */
+/** Сетка работ ученика. */
 export function HomeworksGrid({ limit }: { limit?: number }) {
   const query = useStudentHomeworks()
   if (query.isPending) return <p className="empty">Загружаем…</p>

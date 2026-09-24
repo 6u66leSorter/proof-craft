@@ -123,7 +123,7 @@ function ProfileEditCard({ e }: { e: ProfileEdit }) {
   )
 }
 
-/** Все заявки на одном экране (legacy вкладка `pending`). */
+/** Все заявки на одном экране. */
 export function PendingTab() {
   const query = useAdminModeration()
   const data = query.data

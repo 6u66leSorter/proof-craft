@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-notifications-contract-token'
 const webSessionToken = 'nest-notifications-web-token'
@@ -120,7 +120,7 @@ const authHeaders = (telegramId = studentTelegramId): Record<string, string> => 
 })
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-notifications-')
+  const fixture = await createTestDatabase('proof-craft-notifications-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   fixtureIds = seedNotifications(databasePath)

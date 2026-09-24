@@ -306,7 +306,7 @@ function NotificationsTab() {
 
 const TABS = ['profile', 'review', 'students', 'notifs'] as const
 
-/** Кабинет преподавателя (legacy `renderTeacher`). */
+/** Кабинет преподавателя. */
 export function TeacherScreen() {
   const tab = useApp((s) => (TABS.includes(s.tab as (typeof TABS)[number]) ? s.tab : 'profile')) as (typeof TABS)[number]
   const unread = useApp((s) => Number(s.session?.unread_notifications_count || 0))

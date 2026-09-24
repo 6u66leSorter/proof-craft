@@ -1,4 +1,3 @@
-/** Подписи и форматирование, перенесённые из legacy-клиента без изменения текстов. */
 
 export type StudentTrack = 'student' | 'intern' | 'barber'
 
@@ -26,5 +25,5 @@ export const initialsFromName = (name: string | null | undefined) => {
   return (parts[0][0] + parts[1][0]).toUpperCase()
 }
 
-/** Текстовое представление значения как в legacy `esc(value)`: null/undefined → пустая строка. */
+/** Текстовое представление значения: null/undefined → пустая строка. */
 export const text = (value: unknown) => String(value ?? '')

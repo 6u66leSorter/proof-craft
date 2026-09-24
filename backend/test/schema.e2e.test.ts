@@ -1,33 +1,24 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
-import { join } from 'node:path'
+import { rm } from 'node:fs/promises'
 import test from 'node:test'
 import Database from 'better-sqlite3'
 import { initSchema } from '../src/database/init-schema.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
-const readSchema = (databasePath: string) => {
-  const db = new Database(databasePath, { readonly: true })
+test('initSchema создаёт схему в пустой базе и не трогает базу с данными', async () => {
+  const fixture = await createTestDatabase('proof-craft-schema-')
   try {
-    return db
-      .prepare(`SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name`)
-      .all()
-  } finally {
+    const db = new Database(fixture.databasePath)
+    const tables = db.prepare(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).get() as { n: number }
+    assert.equal(tables.n, 19)
+    db.prepare(`INSERT INTO users (telegram_id, first_name) VALUES (1, 'Проверка')`).run()
     db.close()
-  }
-}
 
-test('prisma/schema.sql создаёт ту же схему, что legacy bot/database.js, и не трогает существующую базу', async () => {
-  const legacy = await createLegacyDatabase('proof-craft-schema-legacy-')
-  const temporaryRoot = await mkdtemp(join(os.tmpdir(), 'proof-craft-schema-'))
-  try {
-    const databasePath = join(temporaryRoot, 'barber.db')
-    assert.equal(initSchema(databasePath), 'created')
-    assert.deepEqual(readSchema(databasePath), readSchema(legacy.databasePath))
-    assert.equal(initSchema(databasePath), 'exists')
+    assert.equal(initSchema(fixture.databasePath), 'exists')
+    const check = new Database(fixture.databasePath, { readonly: true })
+    assert.equal((check.prepare(`SELECT COUNT(*) AS n FROM users`).get() as { n: number }).n, 1)
+    check.close()
   } finally {
-    await rm(temporaryRoot, { recursive: true, force: true })
-    await rm(legacy.temporaryRoot, { recursive: true, force: true })
+    await rm(fixture.temporaryRoot, { recursive: true, force: true })
   }
 })

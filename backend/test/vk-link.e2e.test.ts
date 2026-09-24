@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import { AppModule } from '../src/app.module.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-vk-link-token'
 const vkSecret = 'nest-vk-link-secret'
@@ -76,7 +76,7 @@ const userVk = (telegramId: number) =>
 const lastAudit = () => withDb((db) => db.prepare('SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1').get())
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-vk-link-')
+  const fixture = await createTestDatabase('proof-craft-vk-link-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   withDb((db) => {

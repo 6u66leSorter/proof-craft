@@ -113,7 +113,7 @@ function ProfileTab() {
 
 const TABS = ['home', 'works', 'chat', 'notifs', 'profile'] as const
 
-/** Кабинет ученика с нижними вкладками (legacy `renderStudent`). */
+/** Кабинет ученика с нижними вкладками. */
 export function StudentScreen() {
   const tab = useApp((s) => (TABS.includes(s.tab as (typeof TABS)[number]) ? s.tab : 'home')) as (typeof TABS)[number]
   const unread = useApp((s) => Number(s.session?.unread_notifications_count || 0))

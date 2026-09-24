@@ -7,7 +7,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing'
 import { AppModule } from '../src/app.module.js'
 import { UserNotificationGateway } from '../src/notifications/user-notification.gateway.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-registration-token'
 const vkSecret = 'nest-registration-vk-secret'
@@ -57,7 +57,7 @@ const buildVkLaunchParams = (vkUserId: number): string => {
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-registration-')
+  const fixture = await createTestDatabase('proof-craft-registration-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   const db = new Database(databasePath)

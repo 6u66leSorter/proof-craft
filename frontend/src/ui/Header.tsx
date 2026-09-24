@@ -7,7 +7,7 @@ type HeaderProps = {
   right?: ReactNode
 }
 
-/** Шапка экрана (legacy `hdr()`): без «назад» и правого слота на их месте стоят распорки 24px. */
+/** Шапка экрана: без «назад» и правого слота на их месте стоят распорки 24px. */
 export function Header({ title, onBack, right }: HeaderProps) {
   return (
     <div className="hdr">

@@ -9,7 +9,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import multipart from '@fastify/multipart'
 import { Test } from '@nestjs/testing'
 import { AppModule } from '../src/app.module.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 import { getMultipartOptions } from '../src/common/multipart-options.js'
 
 const botToken = '123456:nest-chat-read-token'
@@ -263,7 +263,7 @@ const seedChatReads = (databasePath: string): FixtureIds => {
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-chat-reads-')
+  const fixture = await createTestDatabase('proof-craft-chat-reads-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   fixtureIds = seedChatReads(fixture.databasePath)

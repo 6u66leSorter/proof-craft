@@ -8,8 +8,8 @@ import { parseHomeworkId } from './homework-revision.request.js'
 const MAX_FILES = 5
 
 /**
- * Разбор multipart правки работы: как legacy, принимаются поля `file`/`files`, не больше пяти файлов.
- * Ошибки загрузки legacy не обрабатывает в маршруте — они уходят в общий обработчик с 500.
+ * Разбор multipart правки работы: принимаются поля `file`/`files`, не больше пяти файлов.
+ * Ошибки загрузки не обрабатываются в маршруте — они уходят в общий обработчик с 500.
  */
 @Injectable()
 export class HomeworkEditGuard implements CanActivate {

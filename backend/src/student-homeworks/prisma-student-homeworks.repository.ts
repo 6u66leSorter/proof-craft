@@ -403,7 +403,7 @@ export class PrismaStudentHomeworksRepository implements StudentHomeworksReposit
     )
     const row = rows[0]
     if (!row) return null
-    // SQLite INTEGER приходит как BigInt у больших значений (telegram_id); legacy отдаёт числа.
+    // SQLite INTEGER приходит как BigInt у больших значений (telegram_id); в ответе API — числа.
     return Object.fromEntries(
       Object.entries(row).map(([key, value]) => [key, typeof value === 'bigint' ? Number(value) : value]),
     ) as RawHomeworkRow

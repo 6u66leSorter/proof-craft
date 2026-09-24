@@ -2,7 +2,7 @@ export type HomeworkCommentTarget = {
   homeworkId: number
   studentId: number
   studentUserId: number
-  /** Статус ученика: legacy пускает преподавателя только к studying и completed. */
+  /** Статус ученика: преподаватель допускается только к studying и completed. */
   studentStatus: string
   /** Пользователи-преподаватели, назначенные ученику. */
   assignedTeacherUserIds: number[]

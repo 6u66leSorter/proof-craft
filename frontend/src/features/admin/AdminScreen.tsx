@@ -117,7 +117,7 @@ function NotificationsTab() {
 
 const TABS = ['pending', 'feedback', 'students', 'teachers', 'notifs'] as const
 
-/** Кабинет администратора (legacy `renderAdmin`). */
+/** Кабинет администратора. */
 export function AdminScreen() {
   const tab = useApp((s) => (TABS.includes(s.tab as (typeof TABS)[number]) ? s.tab : 'pending')) as (typeof TABS)[number]
   const unread = useApp((s) => Number(s.session?.unread_notifications_count || 0))

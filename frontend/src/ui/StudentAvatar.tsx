@@ -1,7 +1,7 @@
 import { studentAvatarUrl } from '../api/files'
 import { AuthImg } from './AuthImg'
 
-/** Фото ученика поверх круга с инициалами (legacy `studentAvatarImg`); ничего, если аватара нет. */
+/** Фото ученика поверх круга с инициалами; ничего, если аватара нет. */
 export function StudentAvatarImg({ student, rounded = true }: { student: { id: number; full_name: string; has_avatar: boolean }; rounded?: boolean }) {
   if (!student.has_avatar || student.id == null) return null
   const name = String(student.full_name || '').trim() || 'ученика'

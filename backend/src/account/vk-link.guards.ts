@@ -6,7 +6,7 @@ const header = (value: string | string[] | undefined): string => (Array.isArray(
 
 export type VkLinkConfirmRequest = AuthenticationRequest & { vkLinkCode?: string }
 
-/** Legacy: код выдаётся только вне VK, и эта проверка идёт раньше разбора тела и подписи. */
+/** Код выдаётся только вне VK, и эта проверка идёт раньше разбора тела и подписи. */
 @Injectable()
 export class VkLinkTokenPlatformGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
@@ -18,7 +18,7 @@ export class VkLinkTokenPlatformGuard implements CanActivate {
   }
 }
 
-/** Legacy: `token` — ровно четыре цифры; проверяется до подписи запроса. */
+/** `token` — ровно четыре цифры; проверяется до подписи запроса. */
 @Injectable()
 export class VkLinkConfirmBodyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {

@@ -49,7 +49,7 @@ export const adminKeys = {
   feedback: () => ['admin', 'feedback', useApp.getState().appUserId],
 }
 
-/** Заявки: ученики на модерации, заявки преподавателей, преподаватели и правки профилей (legacy `loadAdminModeration`). */
+/** Заявки: ученики на модерации, заявки преподавателей, преподаватели и правки профилей. */
 export function useAdminModeration() {
   return useQuery({
     queryKey: adminKeys.moderation(),

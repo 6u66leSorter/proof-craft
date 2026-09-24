@@ -12,7 +12,7 @@ type AdminStudent = { id: number; full_name: string; phone: string; lessons_coun
 type AdminTeacher = { id: number; full_name: string; username: string | null }
 
 /**
- * Админ-панель бота (legacy `/admin`). Все действия идут через те же use cases, что и HTTP API:
+ * Админ-панель бота. Все действия идут через те же use cases, что и HTTP API:
  * права администратора, аудит и уведомления пользователям берутся оттуда.
  */
 @Injectable()
@@ -67,7 +67,7 @@ export class AdminScenario {
       return true
     }
     if (data === 'admin_active') {
-      // В legacy у кнопки не было обработчика; показываем тот же список, что и при назначении ученика.
+      // Показываем тот же список, что и при назначении ученика.
       const students = await this.listStudents(context, 'active')
       await context.reply(
         students.length

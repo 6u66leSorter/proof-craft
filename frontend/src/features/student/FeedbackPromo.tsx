@@ -1,6 +1,6 @@
 import { useApp } from '../../app/store'
 
-/** Карточка, которую legacy `polishScreen` дописывает в конец главной и профиля ученика. */
+/** Приглашение оставить отзыв в конце главной и профиля ученика. */
 export function FeedbackPromo() {
   return (
     <section className="card" style={{ margin: 14, padding: 18 }}>

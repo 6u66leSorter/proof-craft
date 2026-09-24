@@ -10,7 +10,7 @@ import { Test } from '@nestjs/testing'
 import { AppModule } from '../src/app.module.js'
 import { getMultipartOptions } from '../src/common/multipart-options.js'
 import { UserNotificationGateway } from '../src/notifications/user-notification.gateway.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-revision-token'
 const tg = { admin: 9201, teacher: 9202, student: 9203, other: 9204, frozen: 9205 }
@@ -93,7 +93,7 @@ const readState = (homeworkId: number) => {
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-revision-')
+  const fixture = await createTestDatabase('proof-craft-revision-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   const db = new Database(databasePath)

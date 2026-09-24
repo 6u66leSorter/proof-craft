@@ -16,7 +16,7 @@ export type HomeworkEditRequest = AuthenticationRequest & {
 export const homeworkEditFrom = (request: HomeworkEditRequest): HomeworkEditCommand =>
   request.homeworkEdit ?? invalidParameters()
 
-/** Legacy молча игнорирует неразбираемый JSON; берём только целые id. */
+/** Неразбираемый JSON молча игнорируется; берём только целые id. */
 export const parseRemovedAttachmentIds = (raw: string | undefined): number[] => {
   try {
     const parsed: unknown = JSON.parse(raw || '[]')

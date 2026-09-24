@@ -8,7 +8,7 @@ import { PrismaStudentHomeworksRepository } from './prisma-student-homeworks.rep
 import { StudentHomeworksController } from './student-homeworks.controller.js'
 import { StudentHomeworksRepository } from './student-homeworks.repository.js'
 import { HomeworkSubmissionStorage } from './homework-submission.storage.js'
-import { LegacyHomeworkSubmissionStorage } from './legacy-homework-submission.storage.js'
+import { LocalHomeworkSubmissionStorage } from './local-homework-submission.storage.js'
 import { SubmitHomeworkController } from './submit-homework.controller.js'
 import { SubmitHomeworkGuard } from './submit-homework.guard.js'
 import { SubmitHomeworkUseCase } from './submit-homework.use-case.js'
@@ -32,7 +32,7 @@ import { SubmitHomeworkRevisionUseCase } from './submit-homework-revision.use-ca
     EditPendingHomeworkUseCase,
     {
       provide: HomeworkSubmissionStorage,
-      useClass: LegacyHomeworkSubmissionStorage,
+      useClass: LocalHomeworkSubmissionStorage,
     },
     {
       provide: StudentHomeworksRepository,

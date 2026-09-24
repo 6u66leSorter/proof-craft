@@ -11,7 +11,7 @@ import { FeedbackInvitesWorker } from '../src/messenger/feedback-invites.worker.
 import { MessengerModule } from '../src/messenger/messenger.module.js'
 import { TelegramAdapter } from '../src/messenger/telegram/telegram.adapter.js'
 import { FakeTelegram } from './support/fake-telegram.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-bot-token'
 const people = {
@@ -43,7 +43,7 @@ const buttonsOf = (call: { body: Record<string, unknown> }) =>
   ((call.body.reply_markup as { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> } | undefined)?.inline_keyboard ?? []).flat()
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-bot-')
+  const fixture = await createTestDatabase('proof-craft-bot-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   const uploads = join(dirname(databasePath), 'uploads')

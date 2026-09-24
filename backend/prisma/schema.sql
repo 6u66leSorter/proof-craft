@@ -1,5 +1,5 @@
--- Схема SQLite «Дневника академии»: итоговое состояние после legacy-миграций bot/database.js.
--- Применяется к пустой базе скриптом dist/database/init-schema.js; совпадение с legacy проверяет test/schema.e2e.test.ts.
+-- Схема SQLite «Дневника академии» (перенесена из legacy-миграций; Prisma-модели — в schema.prisma).
+-- Применяется к пустой базе скриптом dist/database/init-schema.js (src/database/init-schema.ts).
 
 CREATE TABLE users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

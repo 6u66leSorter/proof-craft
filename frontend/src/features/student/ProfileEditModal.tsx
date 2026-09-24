@@ -62,7 +62,7 @@ function ModalBody() {
   )
 }
 
-/** Заявка на изменение имени, телефона и метро (legacy `renderProfileEditModal`). */
+/** Заявка на изменение имени, телефона и метро. */
 export function ProfileEditModal() {
   const open = useApp((s) => s.profileEdit.open)
   if (!open) return null

@@ -10,7 +10,7 @@ import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
 import { getMultipartOptions } from '../src/common/multipart-options.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-student-avatar-token'
 const webSessionToken = 'nest-student-avatar-web-session'
@@ -143,7 +143,7 @@ const multipartWithoutFile = (): { headers: Record<string, string>; payload: Buf
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-student-avatars-')
+  const fixture = await createTestDatabase('proof-craft-student-avatars-')
   temporaryRoot = fixture.temporaryRoot
   fixtureIds = seedStudentAvatars(fixture.databasePath)
   process.env.DATABASE_URL = `file:${fixture.databasePath}`

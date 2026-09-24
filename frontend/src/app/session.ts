@@ -2,7 +2,7 @@ import { apiGet } from '../api/client'
 import type { Session } from '../api/types'
 import { useApp } from './store'
 
-/** Тихое обновление сессии (счётчик уведомлений, профиль) без смены экрана — legacy `refreshSessionQuiet`. */
+/** Тихое обновление сессии (счётчик уведомлений, профиль) без смены экрана. */
 export async function refreshSessionQuiet() {
   const { platform, appUserId } = useApp.getState()
   try {

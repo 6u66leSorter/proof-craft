@@ -4,7 +4,7 @@ import { sqliteTimestamp } from '../../common/sqlite-timestamp.js'
 import { WebAuthRepository } from '../../web-auth/web-auth.repository.js'
 import type { ScenarioContext } from '../scenario.context.js'
 
-/** `/start` и подтверждение входа на сайт по ссылке `webauth_<token>` (legacy registrationBot). */
+/** `/start` и подтверждение входа на сайт по ссылке `webauth_<token>`. */
 @Injectable()
 export class StartScenario {
   constructor(@Inject(WebAuthRepository) private readonly webAuth: WebAuthRepository) {}

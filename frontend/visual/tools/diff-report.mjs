@@ -1,14 +1,13 @@
 /**
  * Сводка расхождений последнего прогона: для каждого упавшего снимка — число отличающихся
  * пикселей и их области (склеенные по строкам полосы), чтобы быстро найти элемент.
- * Запуск: node visual/tools/diff-report.mjs [legacy|next]
+ * Запуск: node visual/tools/diff-report.mjs
  */
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import sharp from 'sharp'
 
-const target = process.argv[2] || 'next'
-const root = join(import.meta.dirname, '..', 'test-results', target)
+const root = join(import.meta.dirname, '..', 'test-results')
 
 const pairs = []
 for (const dir of readdirSync(root)) {

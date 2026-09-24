@@ -1,4 +1,4 @@
-/** Ответ GET /api/session (legacy `bot/apiServer.js` и NestJS SessionModule). */
+/** Ответ GET /api/session. */
 export type SessionStudent = {
   id: number
   full_name: string
@@ -26,7 +26,7 @@ export type Session = {
   teacher: { id: number; full_name: string; about_me: string } | null
   unread_notifications_count: number
   vk_account_linked: boolean
-  /** Legacy-клиент сравнивает автора сообщения с этим полем, но API его не отдаёт. */
+  /** Клиент сравнивает с этим полем автора сообщения, но API его не отдаёт. */
   user_id?: number
 }
 

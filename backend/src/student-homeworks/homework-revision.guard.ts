@@ -10,7 +10,7 @@ const uploadLimitMb = (): number => {
 }
 
 /**
- * Разбор multipart исправления (legacy порядок: id работы → тело → telegram_id → подпись).
+ * Разбор multipart исправления.
  * Промежуточный файл удаляется при любой ошибке до use case.
  */
 @Injectable()

@@ -15,7 +15,7 @@ import {
 const resolveUploadsDirectory = (): string => {
   const databaseUrl = process.env.DATABASE_URL?.trim()
   if (!databaseUrl?.startsWith('file:')) {
-    throw new Error('Для legacy-файлов требуется абсолютный SQLite DATABASE_URL.')
+    throw new Error('Для локальных файлов требуется абсолютный SQLite DATABASE_URL.')
   }
   return join(dirname(fileURLToPath(new URL(databaseUrl))), 'uploads')
 }
@@ -29,7 +29,7 @@ const removeIfPresent = async (path: string): Promise<void> => {
 }
 
 @Injectable()
-export class LegacyStudentAvatarStorage implements StudentAvatarStorage {
+export class LocalStudentAvatarStorage implements StudentAvatarStorage {
   async saveAvatar(source: Readable, studentId: number): Promise<string> {
     const uploadsDirectory = resolveUploadsDirectory()
     await mkdir(uploadsDirectory, { recursive: true })

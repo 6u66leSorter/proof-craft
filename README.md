@@ -1,17 +1,19 @@
-## VK Mini Apps MVP
+# Дневник академии
 
-- VK app id: `54558405`
-- Production URL: `https://barber-class.ru`
+Веб-приложение барбер-академии: путь ученика от заявки до выпуска — модерация, домашние задания с фото, проверка преподавателем, чат, уведомления и публичное портфолио. Работает как сайт, Telegram Mini App и VK Mini App; бот дублирует ключевые действия.
 
-### Required env vars
+## Быстрый старт
 
-- `VK_APP_ID=54558405`
-- `VITE_VK_APP_ID=54558405`
-- `VK_ID_OFFSET=10000000000` (optional, default is the same)
-- `VK_APP_SECRET=<secure_key_from_vk>` (optional for MVP, required for strict signature validation)
+```bash
+cp .env.example .env    # необязательно: без .env поднимаются сайт и API, бот не запускается
+docker compose up --build
+```
 
-### Notes
+Сайт — http://localhost:8080.
 
-- Telegram flow continues to work as before.
-- VK users are mapped to internal user ids via `VK_ID_OFFSET + vk_user_id`.
-- If `VK_APP_SECRET` is provided, backend verifies VK launch params signature (`sign`) and rejects invalid requests.
+## Состав
+
+- `backend/` — NestJS API и бот (Prisma + SQLite), см. `backend/README.md`.
+- `frontend/` — React-клиент и визуальные тесты, см. `frontend/README.md`.
+- `docs/` — решения, журнал работ и история миграции с legacy.
+- Контекст проекта для разработки — `PROJECT_CONTEXT.md`.

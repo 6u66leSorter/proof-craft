@@ -76,7 +76,7 @@ type AppState = Selection & {
   hwEdit: HwEditState
   /** Поиск и категория в списках учеников преподавателя и администратора. */
   studentSearch: Record<'teacher' | 'admin', StudentSearchState>
-  /** Ученик, чьи работы открыты у преподавателя (legacy `teacherStudentHomeworks.student`). */
+  /** Ученик, чьи работы открыты у преподавателя. */
   teacherStudentId: number | null
   /** Ученик, открытый в карточке администратора. */
   adminStudentId: number | null
@@ -89,11 +89,11 @@ type AppState = Selection & {
   /** Выбранный в гостевой витрине ученик. */
   guestStudentId: number | null
 
-  /** Переход с сохранением текущего экрана в стек (legacy `go`). */
+  /** Переход с сохранением текущего экрана в стек. */
   go: (scr: ScreenName, data?: GoData) => void
-  /** Возврат к предыдущему экрану (legacy `back`). */
+  /** Возврат к предыдущему экрану. */
   back: () => void
-  /** Замена экрана без записи в стек (legacy: прямое присваивание `state.scr` + `render`). */
+  /** Замена экрана без записи в стек. */
   replace: (scr: ScreenName, patch?: Partial<AppState>) => void
   setTab: (tab: string) => void
   patch: (patch: Partial<AppState>) => void
@@ -160,7 +160,7 @@ export const useApp = create<AppState>()((set, get) => ({
   back: () => {
     const current = get()
     if (current.scr === 'hw-new' && current.hwSubmit.status === 'loading') {
-      // Legacy: «Назад» во время загрузки ДЗ отменяет запрос и прячет оверлей.
+      // «Назад» во время загрузки ДЗ отменяет запрос и прячет оверлей.
       current.hwSubmitAbort?.()
       set({ hwSubmitAbort: null, hwSubmit: { status: 'idle', error: '' } })
     }

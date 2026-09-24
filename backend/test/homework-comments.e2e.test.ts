@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import { AppModule } from '../src/app.module.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-comments-token'
 const adminTelegramId = 9101
@@ -62,7 +62,7 @@ const readState = (homeworkId: number) => {
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-comments-')
+  const fixture = await createTestDatabase('proof-craft-comments-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   const db = new Database(databasePath)

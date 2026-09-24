@@ -18,7 +18,6 @@ import { StudentScreen } from '../features/student/StudentScreen'
 import { getTelegram } from '../platform/telegram'
 import { ErrorScreen } from '../screens/ErrorScreen'
 import { LoadingScreen } from '../screens/LoadingScreen'
-import { NotPortedScreen } from '../screens/NotPortedScreen'
 import { useLightboxKeys } from '../ui/Lightbox'
 import { Toasts } from '../ui/Toasts'
 import { bootstrap } from './bootstrap'
@@ -65,11 +64,11 @@ function Screen({ name }: { name: ScreenName }) {
     case 'guest-hw-view':
       return <GuestHomeworkScreen />
     default:
-      return <NotPortedScreen name={name} />
+      return null
   }
 }
 
-/** Системная кнопка «Назад» Telegram повторяет стек экранов (legacy `syncTelegramBackButton`). */
+/** Системная кнопка «Назад» Telegram повторяет стек экранов. */
 function useTelegramBackButton() {
   const depth = useApp((s) => s.stack.length)
   const back = useApp((s) => s.back)

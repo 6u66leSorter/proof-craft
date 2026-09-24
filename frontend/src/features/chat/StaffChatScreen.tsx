@@ -2,7 +2,7 @@ import { useApp } from '../../app/store'
 import { Header } from '../../ui/Header'
 import { ChatPanel } from './ChatPanel'
 
-/** Чат преподавателя или администратора с учеником (legacy экраны `teacher-chat` и `admin-chat`). */
+/** Чат преподавателя или администратора с учеником. */
 export function StaffChatScreen() {
   const name = useApp((s) => (s.selectedStudent as { full_name?: string } | null)?.full_name?.trim())
   return (

@@ -9,7 +9,7 @@ const linkIcon = (
   </svg>
 )
 
-/** Ввод кода из Telegram для входа в тот же аккаунт из VK (legacy `renderVkBindCardHtml`). Только в VK. */
+/** Ввод кода из Telegram для входа в тот же аккаунт из VK. Только в VK. */
 export function VkBindCard() {
   const platform = useApp((s) => s.platform?.platform)
   const [code, setCode] = useState('')

@@ -45,7 +45,7 @@ function WorkBadge({ hw }: { hw: GuestHomework }) {
 
 function WorkCard({ hw }: { hw: GuestHomework }) {
   const title = homeworkTitle(hw)
-  // Legacy-дефект, перенесённый 1 в 1: вместо фото работы — статичная демо-картинка (см. FRONTEND_PLAN).
+  // Известный дефект, сохранённый ради паритета: вместо фото работы — статичная демо-картинка (см. FRONTEND_PLAN).
   const previewImage = DEMO_IMAGES[Number(hw.id) % 3]
   const open = () => useApp.getState().go('guest-hw-view', { homework: hw })
   return (
@@ -152,7 +152,6 @@ function Profile({ student, works }: { student: GuestStudent; works: ReactNode }
             {student.about_me || 'Ученик пока не заполнил информацию о себе.'}
           </p>
         </section>
-        {/* Legacy polishScreen переносит список работ внутрь этой карточки и добавляет класс ba-works. */}
         <section className="card ba-works" style={{ padding: 18 }}>
           <div style={{ marginBottom: 12 }}>
             <h4 style={{ fontSize: 17, color: 'var(--gold)', margin: 0 }}>Мои работы</h4>
@@ -194,6 +193,6 @@ export function GuestStudentScreen() {
   )
 
   const student = query.data?.student
-  // Без профиля (ошибка загрузки) legacy оставляет блок работ прямо на экране.
+  // Без профиля (ошибка загрузки) блок работ остаётся прямо на экране.
   return <div className="scr fi">{student ? <Profile student={student} works={works} /> : works}</div>
 }

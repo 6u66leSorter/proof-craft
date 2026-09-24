@@ -14,13 +14,13 @@ import {
 const resolveUploadsDirectory = (): string => {
   const databaseUrl = process.env.DATABASE_URL?.trim()
   if (!databaseUrl?.startsWith('file:')) {
-    throw new Error('Для legacy-файлов требуется абсолютный SQLite DATABASE_URL.')
+    throw new Error('Для локальных файлов требуется абсолютный SQLite DATABASE_URL.')
   }
   return join(dirname(fileURLToPath(new URL(databaseUrl))), 'uploads')
 }
 
 @Injectable()
-export class LegacyFileReferenceService implements FileReferenceService {
+export class LocalFileReferenceService implements FileReferenceService {
   getAvailability(fileId: string | null): FileAvailability {
     const hasLocalFile = this.resolveLocalUpload(fileId) != null
     return {

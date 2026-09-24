@@ -6,7 +6,7 @@ export const useToasts = create<{ items: Toast[] }>()(() => ({ items: [] }))
 
 let nextId = 1
 
-/** Всплывающее сообщение на 2.2 с (legacy `toast`). */
+/** Всплывающее сообщение на 2.2 с. */
 export function toast(message: string) {
   const id = nextId++
   useToasts.setState((s) => ({ items: [...s.items, { id, message }] }))

@@ -7,7 +7,7 @@ import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { PersistenceModule } from '../src/persistence/persistence.module.js'
 import { UserIdentityRepository } from '../src/persistence/users/user-identity.repository.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const testDir = dirname(fileURLToPath(import.meta.url))
 const backendRoot = resolve(testDir, '..')
@@ -35,7 +35,7 @@ const expectedTables = [
 ].sort()
 
 test('Prisma baseline соответствует 19 legacy-таблицам и repository читает identity', async () => {
-  const fixture = await createLegacyDatabase('proof-craft-prisma-')
+  const fixture = await createTestDatabase('proof-craft-prisma-')
   const previousDatabaseUrl = process.env.DATABASE_URL
 
   try {

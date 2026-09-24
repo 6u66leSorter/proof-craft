@@ -14,7 +14,7 @@ async function generateVkLinkCode() {
   }
 }
 
-/** Код для входа в тот же аккаунт из VK (legacy `renderVkLinkTelegramCard`). Только в Telegram. */
+/** Код для входа в тот же аккаунт из VK. Только в Telegram. */
 export function VkLinkTelegramCard() {
   const platform = useApp((s) => s.platform?.platform)
   const session = useApp((s) => s.session)

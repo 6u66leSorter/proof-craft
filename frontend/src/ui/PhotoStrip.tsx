@@ -2,7 +2,7 @@ import { useApp } from '../app/store'
 import type { PhotoItem } from '../domain/homework'
 import { AuthImg } from './AuthImg'
 
-/** Лента снимков работы; тап открывает просмотр (legacy `renderHomeworkPhotoStrip`). */
+/** Лента снимков работы; тап открывает просмотр. */
 export function PhotoStrip({ items }: { items: PhotoItem[] }) {
   if (!items.length) return null
   const width = items.length === 1 ? '100%' : '85%'

@@ -5,7 +5,7 @@ import type { StagedHomeworkFile } from './homework-submission.storage.js'
 export type HomeworkRevisionCommand = {
   homeworkId: number
   fields: Record<string, string>
-  /** Legacy берёт только первый файл запроса; остальные пропускаются. */
+  /** Берётся только первый файл запроса; остальные пропускаются. */
   file: StagedHomeworkFile | null
 }
 

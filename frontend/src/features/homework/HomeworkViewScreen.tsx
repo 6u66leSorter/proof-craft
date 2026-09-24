@@ -86,7 +86,7 @@ function CorrectionForm({ hw }: { hw: StudentHomework }) {
   const queryClient = useQueryClient()
   const [text, setText] = useState(hw.revision_student_text || hw.text_content || '')
   const [file, setFile] = useState<File | null>(null)
-  // Как в legacy: после обновления работы поле показывает сохранённое на сервере исправление.
+  // После обновления работы поле показывает сохранённое на сервере исправление.
   useEffect(() => {
     setText(hw.revision_student_text || hw.text_content || '')
     setFile(null)
@@ -243,7 +243,7 @@ function ReviewPanel({ hw }: { hw: StudentHomework }) {
   const review = hw.latest_review
   const [rating, setRating] = useState(0)
   const [comment, setComment] = useState(review?.comment && review.status !== 'approved' ? review.comment : '')
-  // Legacy пересчитывает кнопку только после действий пользователя: до них она неактивна.
+  // Кнопка пересчитывается только после действий пользователя: до них она неактивна.
   const [touched, setTouched] = useState(false)
   const ready = touched && (rating > 0 || comment.trim().length > 0)
   const label = touched && rating === 0 && comment.trim().length > 0 ? 'Отправить комментарий' : 'Принять'
@@ -306,7 +306,7 @@ function ReviewPanel({ hw }: { hw: StudentHomework }) {
   )
 }
 
-/** Просмотр работы для ученика, преподавателя и администратора (legacy `renderHwView`). */
+/** Просмотр работы для ученика, преподавателя и администратора. */
 export function HomeworkViewScreen() {
   const hw = useApp((s) => s.selectedHomework) as StudentHomework | null
   const session = useApp((s) => s.session)

@@ -165,7 +165,7 @@ function EditSheet({ hw }: { hw: StudentHomework }) {
   )
 }
 
-/** Правка названия, описания и фото работы на проверке (legacy `renderHwEditModal`). */
+/** Правка названия, описания и фото работы на проверке. */
 export function HomeworkEditModal({ hw }: { hw: StudentHomework }) {
   const open = useApp((s) => s.hwEdit.open)
   if (!open) return null

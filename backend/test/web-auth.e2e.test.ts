@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import { AppModule } from '../src/app.module.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const vkSecret = 'nest-web-auth-vk-secret'
 const studentTelegramId = 9401
@@ -53,7 +53,7 @@ const confirmVk = async (token: string, headerVkUserId: number, launchParams: st
   })
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-web-auth-')
+  const fixture = await createTestDatabase('proof-craft-web-auth-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   withDb((db) => {

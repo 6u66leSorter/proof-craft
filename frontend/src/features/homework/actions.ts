@@ -21,7 +21,7 @@ async function postMultipart(path: string, form: FormData, method = 'POST', sign
   return { response, payload }
 }
 
-/** Перечитать работы ученика и обновить открытую работу (legacy: `loadStudentHomeworks` + поиск по id). */
+/** Перечитать работы ученика и обновить открытую работу. */
 async function refreshStudentHomework(queryClient: QueryClient, homeworkId: number) {
   const appUserId = useApp.getState().appUserId
   const items = await queryClient.fetchQuery({ queryKey: ['student', 'homeworks', appUserId], queryFn: fetchStudentHomeworks, staleTime: 0 })
@@ -82,8 +82,7 @@ export async function submitHomework(queryClient: QueryClient, form: NewHomework
   const desc = form.description.trim()
   const draft = app.hwNewDraft
 
-  // Исправленный дефект legacy: там номер требовался и для бонуса, хотя поле очищено и заблокировано,
-  // поэтому бонусное задание отправить было невозможно. API принимает бонус без номера урока.
+  // Для бонуса номер урока не нужен (поле очищено и заблокировано) — API принимает бонус без него.
   if ((!form.isBonus && !numRaw) || !title || !desc) {
     toast('Заполните номер задания, название и описание')
     return
@@ -209,7 +208,7 @@ export async function saveHomeworkReview(queryClient: QueryClient, homeworkId: n
       comment: text ?? undefined,
     })
     toast(grade ? 'Задание принято' : 'Комментарий сохранён')
-    // Legacy перечитывает список работ ученика у преподавателя, но открытую работу не обновляет (перенесено 1 в 1).
+    // Перечитываем список работ ученика у преподавателя; открытая работа не обновляется.
     const adminStudentId = useApp.getState().adminStudentId
     if (adminStudentId != null) await queryClient.invalidateQueries({ queryKey: adminKeys.student(adminStudentId) })
     await refreshTeacherHomework(queryClient, homeworkId)
@@ -243,7 +242,7 @@ export function removeEditNewPhoto(index: number) {
   patchEdit({ newPhotos: photos })
 }
 
-/** Добавить фото без сжатия, не больше 5 вместе с оставшимися на сервере и уже добавленными (legacy `__ba_hwEditAddPhotos`). */
+/** Добавить фото без сжатия, не больше 5 вместе с оставшимися на сервере и уже добавленными. */
 export function addEditPhotos(files: File[], existingCount: number) {
   const photos = useApp.getState().hwEdit.newPhotos
   const room = Math.max(0, MAX_PHOTOS - existingCount - photos.length)

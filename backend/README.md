@@ -1,6 +1,6 @@
 # Proof Craft backend
 
-Переходный NestJS backend работает рядом с legacy Fastify API. Реализованы `GET /health`, `GET /api/session`, публичное портфолио, авторизованная showcase-витрина, уведомления, чтение работ, чтение и загрузка аватаров учеников, изменение описаний student/teacher-профилей, отправка и административное чтение заявок на изменение student-профиля, а также авторизованные файлы работы с вложениями; production routing пока остаётся на legacy.
+NestJS API и бот «Дневника академии». Реализованы все 58 маршрутов API (реестр — `docs/migration/API_INVENTORY.md`); бот живёт в `src/messenger/` и запускается отдельным процессом `dist/bot-main.js`.
 
 ## Команды
 
@@ -8,8 +8,8 @@
 
 ```bash
 npm run backend:dev
-npm run backend:build
-npm run test:backend
+npm run bot:dev
+npm test
 ```
 
 После нового клонирования зависимости backend устанавливаются отдельно:
@@ -18,17 +18,15 @@ npm run test:backend
 npm --prefix backend install
 ```
 
-По умолчанию Nest слушает `127.0.0.1:8788`, а legacy API — порт `8787`. Переопределение:
+По умолчанию Nest слушает `127.0.0.1:8788`. Переопределение:
 
 ```bash
-NEST_API_HOST=127.0.0.1 NEST_API_PORT=8788 npm run backend:start
+NEST_API_HOST=127.0.0.1 NEST_API_PORT=8788 npm --prefix backend start
 ```
-
-На миграционном этапе маршруты переключаются на Nest по одному. Нельзя направлять весь `/api` в новый процесс, пока все маршруты не перенесены.
 
 ## Prisma baseline
 
-Схема находится в `backend/prisma/schema.prisma` и отражает 19 legacy-таблиц. Runtime требует абсолютный SQLite URL:
+Схема находится в `backend/prisma/schema.prisma` и отражает 19 таблиц SQLite. Runtime требует абсолютный SQLite URL:
 
 ```bash
 DATABASE_URL=file:/absolute/path/to/barber.db npm run backend:start
@@ -73,4 +71,4 @@ npm --prefix backend run prisma:validate
 npm --prefix backend run prisma:generate
 ```
 
-На baseline-этапе запрещены `prisma db push`, `prisma migrate dev` и `prisma migrate deploy`: миграций Prisma ещё нет, источником структуры остаётся `bot/database.js`. Его итоговая схема сохранена в `prisma/schema.sql`; пустую базу создаёт `node dist/database/init-schema.js` (в Docker — при `INIT_SCHEMA=1`), а `test/schema.e2e.test.ts` проверяет, что она совпадает с legacy.
+Миграций Prisma пока нет: структуру задаёт `prisma/schema.sql` (итоговая схема, перенесённая из legacy), `schema.prisma` ей соответствует. Пустую базу создаёт `node dist/database/init-schema.js` (в Docker — при `INIT_SCHEMA=1`); существующую базу скрипт не меняет. `prisma db push` и `prisma migrate` не используются — изменение схемы вносится в оба файла.

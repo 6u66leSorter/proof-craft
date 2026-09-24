@@ -1,6 +1,6 @@
 import type { AdminTeacher } from './api'
 
-/** Выбор преподавателя в стиле `.tcb` (legacy разметка с кастомной галочкой). */
+/** Выбор преподавателя в стиле `.tcb`. */
 export function TeacherCheckbox({
   teacher,
   className,

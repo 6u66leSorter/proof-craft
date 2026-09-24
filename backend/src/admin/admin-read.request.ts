@@ -11,8 +11,8 @@ export const ADMIN_STUDENT_STATUSES = [
 export type AdminStudentStatus = (typeof ADMIN_STUDENT_STATUSES)[number]
 
 /**
- * Фильтр списка учеников. Без `status` клиенты ожидают всех активных (studying и completed),
- * как legacy; явный `status` фильтрует точно (исправление BUG-001).
+ * Фильтр списка учеников. Без `status` возвращаются все активные (studying и completed);
+ * явный `status` фильтрует точно (исправление BUG-001).
  */
 export type AdminStudentStatusFilter = AdminStudentStatus | 'active'
 

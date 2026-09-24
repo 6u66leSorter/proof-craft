@@ -13,9 +13,9 @@ const contentType = (mimeType: string): string =>
   mimeType.startsWith('image/') ? 'photo' : mimeType.startsWith('video/') ? 'video' : 'document'
 
 /**
- * Правка работы на проверке (legacy `PATCH /api/student/homeworks/:homeworkId`): название, описание,
- * удаление основного файла и вложений, новые вложения. Ответ — строка работы в формате legacy
- * `getHomeworkById` с флагами файлов. Как в legacy, файлы удалённых вложений остаются на диске.
+ * Правка работы на проверке: название, описание,
+ * удаление основного файла и вложений, новые вложения. Ответ — строка работы с флагами файлов.
+ * Файлы удалённых вложений остаются на диске.
  */
 @Injectable()
 export class EditPendingHomeworkUseCase {

@@ -11,7 +11,7 @@ import Database from 'better-sqlite3'
 import { AppModule } from '../src/app.module.js'
 import { getMultipartOptions } from '../src/common/multipart-options.js'
 import { UserNotificationGateway } from '../src/notifications/user-notification.gateway.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-submit-homework-token'
 const studentTelegramId = 9701
@@ -135,7 +135,7 @@ const seed = (path: string): FixtureIds => {
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-submit-homework-')
+  const fixture = await createTestDatabase('proof-craft-submit-homework-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   fixtureIds = seed(databasePath)
