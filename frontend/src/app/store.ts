@@ -10,6 +10,15 @@ type Selection = {
   selectedAdminTeacher: unknown
 }
 
+export type WebLoginState = {
+  status: 'idle' | 'starting' | 'waiting' | 'expired' | 'error'
+  error: string
+  provider: 'telegram' | 'vk' | null
+  token: string | null
+}
+
+export const WEB_LOGIN_IDLE: WebLoginState = { status: 'idle', error: '', provider: null, token: null }
+
 type StackEntry = Selection & { scr: ScreenName; tab: string | null }
 
 type GoData = { student?: unknown; homework?: unknown; tab?: string; adminTeacher?: unknown }
@@ -27,6 +36,8 @@ type AppState = Selection & {
   registerRole: string | null
   registerTab: 'reg' | 'login'
   teacherApplicationSent: boolean
+  /** Вход на обычном сайте через подтверждение в Telegram или VK. */
+  webLogin: WebLoginState
   /** Просмотр фото поверх экрана; сбрасывается при любом переходе. */
   lightbox: { items: PhotoItem[]; index: number } | null
   /** Категория учеников в гостевой витрине. */
@@ -56,6 +67,7 @@ export const useApp = create<AppState>()((set, get) => ({
   registerRole: null,
   registerTab: 'reg',
   teacherApplicationSent: false,
+  webLogin: WEB_LOGIN_IDLE,
   lightbox: null,
   guestTrack: 'student',
   guestStudentId: null,

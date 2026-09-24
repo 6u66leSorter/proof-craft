@@ -33,9 +33,11 @@ const FIXED_NOW = new Date('2030-03-15T12:00:00+03:00')
 
 type SettleOptions = { waitForNetwork?: boolean }
 
+export type Mutation = { method: string; path: string; body: unknown }
+
 type VisualFixtures = {
   portedGuard: void
-  mutations: string[]
+  mutations: Mutation[]
   openAs: (role: Role | null, search?: string, options?: SettleOptions) => Promise<void>
   settle: () => Promise<void>
   snap: (name: string, options?: SettleOptions) => Promise<void>
@@ -56,14 +58,20 @@ export const test = base.extend<VisualFixtures & VisualOptions>({
   ],
 
   mutations: async ({ page, baseURL }, use) => {
-    const mutations: string[] = []
+    const mutations: Mutation[] = []
     await page.route('**/*', async (route) => {
       const request = route.request()
       const url = new URL(request.url())
       if (url.origin === new URL(baseURL!).origin) {
         if (url.pathname.startsWith('/api/') && request.method() !== 'GET') {
           // Тесты не меняют общую БД: мутации фиксируются и получают нейтральный ответ.
-          mutations.push(`${request.method()} ${url.pathname}`)
+          let body: unknown = request.postData()
+          try {
+            body = request.postDataJSON()
+          } catch {
+            // не JSON (multipart) — сохраняем как есть
+          }
+          mutations.push({ method: request.method(), path: url.pathname, body })
           return route.fulfill({ json: { ok: true, data: {} } })
         }
         return route.continue()
@@ -93,10 +101,13 @@ export const test = base.extend<VisualFixtures & VisualOptions>({
       await page.addInitScript(
         ({ theme, token }) => {
           try {
+            // Только при первом открытии вкладки: перезагрузка должна видеть состояние, оставленное приложением.
+            if (sessionStorage.getItem('__visual_ready')) return
             localStorage.setItem('ba_theme', theme)
             if (token) localStorage.setItem('ba_web_session', token)
             else localStorage.removeItem('ba_web_session')
             sessionStorage.clear()
+            sessionStorage.setItem('__visual_ready', '1')
           } catch {
             // storage недоступен — тест упадёт на снимке и покажет причину
           }

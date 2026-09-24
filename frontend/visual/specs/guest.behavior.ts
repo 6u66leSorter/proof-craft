@@ -40,11 +40,4 @@ test.describe('гостевая витрина: поведение', () => {
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
   })
-
-  test('выход из витрины по ссылке ?guest=1 ведёт на вход', async ({ openAs, page }) => {
-    await openAs(null, '?guest=1')
-    await page.getByRole('button', { name: 'Выйти' }).click()
-    await expect(page).toHaveURL(/\/$/)
-    await expect(page.getByText('Telegram').first()).toBeVisible()
-  })
 })

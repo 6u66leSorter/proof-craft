@@ -1,4 +1,7 @@
 import { useEffect } from 'react'
+import { RegisterFlowScreen } from '../features/auth/RegisterFlowScreen'
+import { RegisterRoleScreen } from '../features/auth/RegisterRoleScreen'
+import { WebLoginScreen } from '../features/auth/WebLoginScreen'
 import { GuestHomeworkScreen } from '../features/guest/GuestHomeworkScreen'
 import { GuestPortfolioScreen } from '../features/guest/GuestPortfolioScreen'
 import { GuestStudentScreen } from '../features/guest/GuestStudentScreen'
@@ -18,6 +21,12 @@ function Screen({ name }: { name: ScreenName }) {
       return <LoadingScreen />
     case 'error':
       return <ErrorScreen />
+    case 'web-login':
+      return <WebLoginScreen />
+    case 'register-role':
+      return <RegisterRoleScreen />
+    case 'register-flow':
+      return <RegisterFlowScreen />
     case 'guest':
       return <GuestPortfolioScreen />
     case 'guest-student':

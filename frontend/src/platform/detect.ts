@@ -5,6 +5,10 @@ import { STORAGE_KEYS, local } from './storage'
 import { getTelegram } from './telegram'
 
 const VK_ID_OFFSET = 10_000_000_000
+const VK_BRIDGE_TIMEOUT_MS = 5000
+
+const withTimeout = <T>(promise: Promise<T>, ms: number) =>
+  Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('VK Bridge timeout')), ms))])
 
 export type Platform = {
   platform: 'telegram' | 'vk' | 'standalone'
@@ -28,12 +32,16 @@ export async function detectPlatform(): Promise<Platform> {
   if (urlLooksLikeVkMiniApp(window.location.href)) {
     const vkUserId = Number(params.get('vk_user_id') || 0)
     let realVkUserId: number | null = vkUserId > 0 ? vkUserId : null
-    try {
-      await bridge.send('VKWebAppInit')
-      const vkUser = await bridge.send('VKWebAppGetUserInfo')
-      if (vkUser?.id) realVkUserId = Number(vkUser.id)
-    } catch {
-      // вне VK bridge недоступен — остаёмся на vk_user_id из URL
+    // Вне VK (обычный браузер с vk_* в URL) bridge.send не отвечает никогда — не вызываем его,
+    // а внутри VK страхуемся таймаутом, чтобы не зависнуть на экране загрузки.
+    if (bridge.isEmbedded()) {
+      try {
+        await withTimeout(bridge.send('VKWebAppInit'), VK_BRIDGE_TIMEOUT_MS)
+        const vkUser = await withTimeout(bridge.send('VKWebAppGetUserInfo'), VK_BRIDGE_TIMEOUT_MS)
+        if (vkUser?.id) realVkUserId = Number(vkUser.id)
+      } catch {
+        // bridge не ответил — остаёмся на vk_user_id из URL
+      }
     }
     const launchParams = window.location.search.startsWith('?') ? window.location.search.slice(1) : window.location.search
     const platform: Platform = {
