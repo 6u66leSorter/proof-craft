@@ -13,18 +13,23 @@ import { SubmitHomeworkController } from './submit-homework.controller.js'
 import { SubmitHomeworkGuard } from './submit-homework.guard.js'
 import { SubmitHomeworkUseCase } from './submit-homework.use-case.js'
 import { HomeworkRevisionController } from './homework-revision.controller.js'
+import { HomeworkEditController } from './homework-edit.controller.js'
+import { HomeworkEditGuard } from './homework-edit.guard.js'
+import { EditPendingHomeworkUseCase } from './edit-pending-homework.use-case.js'
 import { HomeworkRevisionGuard } from './homework-revision.guard.js'
 import { SubmitHomeworkRevisionUseCase } from './submit-homework-revision.use-case.js'
 
 @Module({
   imports: [AuthModule, NotificationsModule, PersistenceModule, StorageModule],
-  controllers: [StudentHomeworksController, SubmitHomeworkController, HomeworkRevisionController],
+  controllers: [StudentHomeworksController, SubmitHomeworkController, HomeworkRevisionController, HomeworkEditController],
   providers: [
     ListStudentHomeworksUseCase,
     SubmitHomeworkGuard,
     SubmitHomeworkUseCase,
     HomeworkRevisionGuard,
     SubmitHomeworkRevisionUseCase,
+    HomeworkEditGuard,
+    EditPendingHomeworkUseCase,
     {
       provide: HomeworkSubmissionStorage,
       useClass: LegacyHomeworkSubmissionStorage,

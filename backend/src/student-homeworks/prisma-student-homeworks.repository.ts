@@ -7,6 +7,9 @@ import {
   type HomeworkSubmissionStudent,
   type StudentHomework,
   type StudentHomeworksSnapshot,
+  type EditPendingHomeworkCommand,
+  type EditPendingHomeworkResult,
+  type RawHomeworkRow,
   type SubmitRevisionCommand,
   type SubmitRevisionResult,
 } from './student-homeworks.repository.js'
@@ -334,5 +337,84 @@ export class PrismaStudentHomeworksRepository implements StudentHomeworksReposit
       }
       return 'submitted'
     })
+  }
+
+  async findHomeworkOwner(homeworkId: number): Promise<{ studentId: number; status: string } | null> {
+    const homework = await this.prisma.homeworks.findUnique({
+      where: { id: homeworkId },
+      select: { student_id: true, status: true },
+    })
+    return homework ? { studentId: homework.student_id, status: homework.status } : null
+  }
+
+  async editPendingHomework(command: EditPendingHomeworkCommand): Promise<EditPendingHomeworkResult> {
+    return await this.prisma.$transaction(async (transaction) => {
+      const homework = await transaction.homeworks.findUnique({
+        where: { id: command.homeworkId },
+        select: { student_id: true, status: true },
+      })
+      if (!homework || homework.student_id !== command.studentId) return 'not_found'
+      if (homework.status !== 'pending') return 'not_pending'
+      await transaction.homeworks.update({
+        where: { id: command.homeworkId },
+        data: {
+          updated_at: command.updatedAt,
+          ...(command.textContent !== undefined ? { text_content: command.textContent || null } : {}),
+          ...(command.haircutName !== undefined ? { haircut_name: command.haircutName || null } : {}),
+          ...(command.removePrimary ? { file_id: null } : {}),
+        },
+      })
+      if (command.removeAttachmentIds.length) {
+        await transaction.homework_files.deleteMany({
+          where: { homework_id: command.homeworkId, id: { in: command.removeAttachmentIds } },
+        })
+      }
+      if (command.newAttachments.length) {
+        const { _max } = await transaction.homework_files.aggregate({
+          where: { homework_id: command.homeworkId },
+          _max: { sort_order: true },
+        })
+        const maxOrder = _max.sort_order ?? 0
+        await transaction.homework_files.createMany({
+          data: command.newAttachments.map((file, index) => ({
+            homework_id: command.homeworkId,
+            file_id: file.fileId,
+            content_type: file.contentType,
+            sort_order: maxOrder + index + 1,
+            created_at: command.updatedAt,
+          })),
+        })
+      }
+      return 'edited'
+    })
+  }
+
+  async findRawHomework(homeworkId: number): Promise<RawHomeworkRow | null> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      `SELECT h.*,
+              s.full_name AS student_name,
+              s.user_id AS student_user_id,
+              u.telegram_id AS student_telegram_id
+       FROM homeworks h
+       JOIN students s ON h.student_id = s.id
+       JOIN users u ON s.user_id = u.id
+       WHERE h.id = ?`,
+      homeworkId,
+    )
+    const row = rows[0]
+    if (!row) return null
+    // SQLite INTEGER приходит как BigInt у больших значений (telegram_id); legacy отдаёт числа.
+    return Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [key, typeof value === 'bigint' ? Number(value) : value]),
+    ) as RawHomeworkRow
+  }
+
+  async listAttachments(homeworkId: number): Promise<Array<{ id: number; contentType: string; fileId: string }>> {
+    const rows = await this.prisma.homework_files.findMany({
+      where: { homework_id: homeworkId },
+      orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+      select: { id: true, content_type: true, file_id: true },
+    })
+    return rows.map((row) => ({ id: row.id, contentType: row.content_type, fileId: row.file_id }))
   }
 }

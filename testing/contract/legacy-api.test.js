@@ -4872,3 +4872,120 @@ test('POST student/homeworks/:id/revision сохраняет validation, access 
   assert.equal(unsigned.response.status, 401)
   assert.equal(readRevisionState(homeworkId).homework.status, 'revision')
 })
+
+const patchMultipart = async (path, fields, telegramUserId = null, files = []) => {
+  const body = new FormData()
+  for (const [key, value] of Object.entries(fields)) body.set(key, String(value))
+  for (const item of files) {
+    body.append(item.field ?? 'files', new Blob([item.content], { type: item.type }), item.name)
+  }
+  const headers = telegramUserId == null ? {} : { 'X-Telegram-Init-Data': buildTelegramInitData(telegramUserId) }
+  const response = await fetch(`${baseUrl}${path}`, { method: 'PATCH', headers, body })
+  return { response, body: await response.json() }
+}
+
+const createEditableHomework = (studentId = fixtureIds.studentOneId, status = 'pending') => {
+  const db = new Database(legacyDatabasePath)
+  const homeworkId = Number(db.prepare(`
+    INSERT INTO homeworks (student_id, lesson_number, is_bonus, content_type, file_id, text_content, status, haircut_name, created_at, updated_at)
+    VALUES (?, 8, 0, 'photo', ?, 'Исходное описание', ?, 'Исходная стрижка', '2026-09-24 09:00:00', '2026-09-24 09:00:00')
+  `).run(studentId, fixtureIds.pendingFilePath, status).lastInsertRowid)
+  const insertFile = db.prepare(`
+    INSERT INTO homework_files (homework_id, file_id, content_type, sort_order) VALUES (?, ?, 'photo', ?)
+  `)
+  const keepId = Number(insertFile.run(homeworkId, fixtureIds.revisionFilePath, 1).lastInsertRowid)
+  const removeId = Number(insertFile.run(homeworkId, fixtureIds.approvedFilePath, 2).lastInsertRowid)
+  db.close()
+  return { homeworkId, keepId, removeId }
+}
+
+const readEditableState = (homeworkId) => {
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const homework = db.prepare('SELECT file_id, text_content, haircut_name, updated_at FROM homeworks WHERE id = ?').get(homeworkId)
+  const files = db.prepare('SELECT id, file_id, content_type, sort_order FROM homework_files WHERE homework_id = ? ORDER BY sort_order').all(homeworkId)
+  db.close()
+  return { homework, files }
+}
+
+test('PATCH student/homeworks/:id правит поля, удаляет и добавляет фото pending-работы', async () => {
+  const { homeworkId, keepId, removeId } = createEditableHomework()
+  const { response, body } = await patchMultipart(`/api/student/homeworks/${homeworkId}`, {
+    telegram_id: 3001,
+    haircut_name: '  Новая стрижка ',
+    text_content: '',
+    remove_primary: '1',
+    remove_attachment_ids: JSON.stringify([removeId]),
+  }, 3001, [{ name: 'new.svg', type: 'image/svg+xml', content: testImageSvg }])
+  assert.equal(response.status, 200)
+  const homework = body.data.homework
+  assert.deepEqual(Object.keys(homework), [
+    'id', 'student_id', 'lesson_number', 'is_bonus', 'content_type', 'file_id', 'text_content', 'status', 'created_at',
+    'updated_at', 'haircut_name', 'revision_student_text', 'revision_student_file_id', 'student_name', 'student_user_id',
+    'student_telegram_id', 'has_local_file', 'has_telegram_file', 'extra_files_count', 'attachments',
+  ])
+  assert.deepEqual({ ...homework, updated_at: 'X', attachments: homework.attachments.map(({ id, ...rest }) => rest) }, {
+    id: homeworkId,
+    student_id: fixtureIds.studentOneId,
+    lesson_number: 8,
+    is_bonus: 0,
+    content_type: 'photo',
+    file_id: null,
+    text_content: null,
+    status: 'pending',
+    created_at: '2026-09-24 09:00:00',
+    updated_at: 'X',
+    haircut_name: '  Новая стрижка ',
+    revision_student_text: null,
+    revision_student_file_id: null,
+    student_name: 'Анна Ученица',
+    student_user_id: homework.student_user_id,
+    student_telegram_id: 3001,
+    has_local_file: false,
+    has_telegram_file: false,
+    extra_files_count: 2,
+    attachments: [
+      { content_type: 'photo', has_local_file: true, has_telegram_file: false },
+      { content_type: 'photo', has_local_file: true, has_telegram_file: false },
+    ],
+  })
+  assert.notEqual(homework.updated_at, '2026-09-24 09:00:00')
+  const state = readEditableState(homeworkId)
+  assert.equal(state.files[0].id, keepId)
+  assert.equal(state.files.length, 2)
+  assert.equal(state.files[1].content_type, 'photo')
+  assert.equal(state.files[1].sort_order, 2)
+  assert.match(state.files[1].file_id, /\.jpg$/)
+  // Legacy удаляет только строки: файл удалённого вложения остаётся на диске.
+  assert.ok(existsSync(fixtureIds.approvedFilePath))
+})
+
+test('PATCH student/homeworks/:id без полей не меняет текст и название, некорректный remove_attachment_ids игнорируется', async () => {
+  const { homeworkId } = createEditableHomework()
+  const { response } = await patchMultipart(`/api/student/homeworks/${homeworkId}`, {
+    telegram_id: 3001,
+    remove_attachment_ids: '{broken',
+  }, 3001)
+  assert.equal(response.status, 200)
+  const state = readEditableState(homeworkId)
+  assert.equal(state.homework.text_content, 'Исходное описание')
+  assert.equal(state.homework.haircut_name, 'Исходная стрижка')
+  assert.equal(state.homework.file_id, fixtureIds.pendingFilePath)
+  assert.equal(state.files.length, 2)
+})
+
+test('PATCH student/homeworks/:id сохраняет validation, access и state ошибки', async () => {
+  const { homeworkId } = createEditableHomework()
+  const path = `/api/student/homeworks/${homeworkId}`
+  const invalidId = await patchMultipart('/api/student/homeworks/abc', { telegram_id: 3001 }, 3001)
+  const noTelegram = await patchMultipart(path, {}, 3001)
+  const foreign = await patchMultipart(`/api/student/homeworks/${createEditableHomework(fixtureIds.studentTwoId).homeworkId}`, { telegram_id: 3001 }, 3001)
+  const reviewed = await patchMultipart(`/api/student/homeworks/${createEditableHomework(fixtureIds.studentOneId, 'approved').homeworkId}`, { telegram_id: 3001 }, 3001)
+  const unsigned = await patchMultipart(path, { telegram_id: 3001 })
+  const tooMany = await patchMultipart(path, { telegram_id: 3001 }, 3001, Array.from({ length: 6 }, (_, i) => ({ name: `${i}.svg`, type: 'image/svg+xml', content: testImageSvg })))
+  assert.deepEqual([invalidId.response.status, invalidId.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+  assert.deepEqual([noTelegram.response.status, noTelegram.body], [400, { ok: false, error: 'Передайте telegram_id.' }])
+  assert.deepEqual([foreign.response.status, foreign.body], [404, { ok: false, error: 'Задание не найдено.' }])
+  assert.deepEqual([reviewed.response.status, reviewed.body], [403, { ok: false, error: 'Редактировать можно только задания, ещё не проверенные преподавателем.' }])
+  assert.equal(unsigned.response.status, 401)
+  assert.deepEqual([tooMany.response.status, tooMany.body], [500, { ok: false, error: 'Внутренняя ошибка сервера.' }])
+})
