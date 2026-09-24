@@ -96,6 +96,20 @@ export type CreateHomeworkSubmissionResult =
   | { kind: 'duplicate' }
   | { kind: 'created'; homework: SubmittedHomework }
 
+export type SubmitRevisionCommand = {
+  studentId: number
+  homeworkId: number
+  text: string
+  /** Новый файл исправления; null — прежний файл сохраняется (legacy COALESCE). */
+  revisionFileId: string | null
+  updatedAt: string
+  notificationBody: string
+  recipientUserIds: number[]
+}
+
+/** Порядок проверок legacy: работа ученика → статус «на доработке» → непустой текст. */
+export type SubmitRevisionResult = 'submitted' | 'not_found' | 'not_revision' | 'no_text'
+
 export abstract class StudentHomeworksRepository {
   abstract findByUserId(userId: number): Promise<StudentHomeworksSnapshot | null>
   abstract findSubmissionStudent(userId: number): Promise<HomeworkSubmissionStudent | null>
@@ -107,4 +121,5 @@ export abstract class StudentHomeworksRepository {
   abstract createSubmission(
     command: CreateHomeworkSubmissionCommand,
   ): Promise<CreateHomeworkSubmissionResult>
+  abstract submitRevision(command: SubmitRevisionCommand): Promise<SubmitRevisionResult>
 }

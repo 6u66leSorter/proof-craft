@@ -4784,3 +4784,91 @@ test('POST homeworks/:id/comments сохраняет validation, access и not-f
   assert.deepEqual([stranger.response.status, stranger.body], [403, { ok: false, error: 'Нет доступа к этому заданию.' }])
   assert.equal(unsigned.response.status, 401)
 })
+
+const createRevisionHomework = (studentId = fixtureIds.studentOneId, revisionFileId = null) => {
+  const db = new Database(legacyDatabasePath)
+  const homeworkId = Number(db.prepare(`
+    INSERT INTO homeworks (student_id, lesson_number, is_bonus, content_type, text_content, status, haircut_name, revision_student_file_id)
+    VALUES (?, 7, 0, 'text', 'Работа для исправления', 'revision', 'Андеркат', ?)
+  `).run(studentId, revisionFileId).lastInsertRowid)
+  db.close()
+  return homeworkId
+}
+
+const readRevisionState = (homeworkId) => {
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const homework = db.prepare(`
+    SELECT status, revision_student_text, revision_student_file_id FROM homeworks WHERE id = ?
+  `).get(homeworkId)
+  const notifications = db.prepare(`
+    SELECT u.telegram_id, n.kind, n.body, n.payload FROM app_notifications n
+    JOIN users u ON u.id = n.user_id WHERE n.payload LIKE ? ORDER BY n.id
+  `).all(`%"homework_id":${homeworkId}}%`)
+  db.close()
+  return { homework, notifications }
+}
+
+test('POST student/homeworks/:id/revision сохраняет исправление с фото и уведомляет команду', async () => {
+  const homeworkId = createRevisionHomework()
+  const { response, body } = await postMultipart(
+    `/api/student/homeworks/${homeworkId}/revision`,
+    { telegram_id: 3001, revision_text: '  Поправила окантовку  ' },
+    3001,
+    { name: 'fix.svg', type: 'image/svg+xml', content: testImageSvg },
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.ok, true)
+  const homework = body.data.homework
+  assert.equal(homework.id, homeworkId)
+  assert.equal(homework.status, 'pending')
+  assert.equal(homework.revision_student_text, 'Поправила окантовку')
+  assert.equal(homework.revision_has_local_file, true)
+  // В отличие от списка работ, ответ не содержит review_count: getHomeworkById его не выбирает.
+  assert.deepEqual(Object.keys(homework).sort(), [
+    'attachments', 'comments', 'content_type', 'created_at', 'extra_files_count', 'file_id', 'haircut_name',
+    'has_local_file', 'has_telegram_file', 'id', 'is_bonus', 'latest_review', 'lesson_number',
+    'reviews', 'revision_has_local_file', 'revision_has_telegram_file', 'revision_student_text', 'status',
+    'student_id', 'text_content',
+  ])
+  const state = readRevisionState(homeworkId)
+  assert.equal(state.homework.status, 'pending')
+  assert.match(state.homework.revision_student_file_id, /\.jpg$/)
+  const text = 'Ученик Анна Ученица отправил исправление по урок №7.'
+  const payload = JSON.stringify({ student_id: fixtureIds.studentOneId, homework_id: homeworkId })
+  assert.deepEqual(state.notifications, [
+    { telegram_id: 2001, kind: 'homework_revision', body: text, payload },
+    { telegram_id: 1001, kind: 'homework_revision', body: text, payload },
+  ])
+})
+
+test('POST student/homeworks/:id/revision без фото сохраняет прежний файл исправления', async () => {
+  const homeworkId = createRevisionHomework(fixtureIds.studentOneId, fixtureIds.revisionFilePath)
+  const { response, body } = await postMultipart(
+    `/api/student/homeworks/${homeworkId}/revision`,
+    { telegram_id: 3001, text: 'Только текст' },
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.data.homework.revision_student_text, 'Только текст')
+  assert.equal(readRevisionState(homeworkId).homework.revision_student_file_id, fixtureIds.revisionFilePath)
+})
+
+test('POST student/homeworks/:id/revision сохраняет validation, access и state ошибки', async () => {
+  const homeworkId = createRevisionHomework()
+  const path = `/api/student/homeworks/${homeworkId}/revision`
+  const invalidId = await postMultipart('/api/student/homeworks/abc/revision', { telegram_id: 3001, text: 'x' }, 3001)
+  const noTelegram = await postMultipart(path, { text: 'x' }, 3001)
+  const noText = await postMultipart(path, { telegram_id: 3001, text: '   ' }, 3001)
+  const notImage = await postMultipart(path, { telegram_id: 3001, text: 'x' }, 3001, { name: 'fix.txt', type: 'text/plain', content: 'text' })
+  const foreign = await postMultipart(`/api/student/homeworks/${createRevisionHomework(fixtureIds.studentTwoId)}/revision`, { telegram_id: 3001, text: 'x' }, 3001)
+  const notRevision = await postMultipart(`/api/student/homeworks/${fixtureIds.pendingHomeworkId}/revision`, { telegram_id: 3001, text: 'x' }, 3001)
+  const unsigned = await postMultipart(path, { telegram_id: 3001, text: 'x' })
+  assert.deepEqual([invalidId.response.status, invalidId.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+  assert.deepEqual([noTelegram.response.status, noTelegram.body], [400, { ok: false, error: 'Передайте telegram_id.' }])
+  assert.deepEqual([noText.response.status, noText.body], [400, { ok: false, error: 'Опишите, что вы исправили.' }])
+  assert.deepEqual([notImage.response.status, notImage.body], [400, { ok: false, error: 'К исправлению можно прикрепить только изображение.' }])
+  assert.deepEqual([foreign.response.status, foreign.body], [404, { ok: false, error: 'Работа не найдена.' }])
+  assert.deepEqual([notRevision.response.status, notRevision.body], [400, { ok: false, error: 'Исправление доступно только для работ со статусом «нужна доработка».' }])
+  assert.equal(unsigned.response.status, 401)
+  assert.equal(readRevisionState(homeworkId).homework.status, 'revision')
+})

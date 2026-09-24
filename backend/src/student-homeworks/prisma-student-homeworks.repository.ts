@@ -7,6 +7,8 @@ import {
   type HomeworkSubmissionStudent,
   type StudentHomework,
   type StudentHomeworksSnapshot,
+  type SubmitRevisionCommand,
+  type SubmitRevisionResult,
 } from './student-homeworks.repository.js'
 
 const compareHomeworks = (left: StudentHomework, right: StudentHomework): number => {
@@ -298,6 +300,39 @@ export class PrismaStudentHomeworksRepository implements StudentHomeworksReposit
           })),
         },
       }
+    })
+  }
+
+  async submitRevision(command: SubmitRevisionCommand): Promise<SubmitRevisionResult> {
+    return await this.prisma.$transaction(async (transaction) => {
+      const homework = await transaction.homeworks.findUnique({
+        where: { id: command.homeworkId },
+        select: { student_id: true, status: true },
+      })
+      if (!homework || homework.student_id !== command.studentId) return 'not_found'
+      if (homework.status !== 'revision') return 'not_revision'
+      if (!command.text) return 'no_text'
+      await transaction.homeworks.update({
+        where: { id: command.homeworkId },
+        data: {
+          revision_student_text: command.text,
+          ...(command.revisionFileId ? { revision_student_file_id: command.revisionFileId } : {}),
+          status: 'pending',
+          updated_at: command.updatedAt,
+        },
+      })
+      if (command.recipientUserIds.length) {
+        await transaction.app_notifications.createMany({
+          data: command.recipientUserIds.map((userId) => ({
+            user_id: userId,
+            kind: 'homework_revision',
+            body: command.notificationBody,
+            payload: JSON.stringify({ student_id: command.studentId, homework_id: command.homeworkId }),
+            created_at: command.updatedAt,
+          })),
+        })
+      }
+      return 'submitted'
     })
   }
 }
