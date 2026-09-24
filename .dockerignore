@@ -4,10 +4,11 @@ data
 .git
 .env
 .env.*
-!.env.docker.example
 backend/src/generated
 frontend/visual
 mini-app
 testing
+docs
+backend/test
 *.log
 .DS_Store

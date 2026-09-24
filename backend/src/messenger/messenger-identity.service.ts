@@ -6,7 +6,7 @@ import { UserIdentityRepository } from '../persistence/users/user-identity.repos
 import type { ChannelUser } from './channel.types.js'
 
 /**
- * Пользователь мессенджера → внутренний пользователь (legacy `getOrCreateUser`): находит по
+ * Пользователь мессенджера → внутренний пользователь: находит по
  * telegram_id, иначе создаёт guest. Существующему пользователю гарантирует строку роли из `users.role`.
  */
 @Injectable()

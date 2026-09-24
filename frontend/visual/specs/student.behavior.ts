@@ -74,7 +74,7 @@ test.describe('ученик: поведение', () => {
 
   test('сообщение в чат уходит по Enter', async ({ page, mutations }) => {
     await tab(page, 'Чат')
-    // Legacy перерисовывает экран после загрузки ленты и теряет текст, набранный до неё.
+    // Ждём ленту: текст, набранный до её загрузки, не гарантирован.
     await expect(page.getByText('Отличный референс')).toBeVisible()
     const input = page.getByRole('textbox', { name: 'Сообщение...' })
     await input.fill('Когда следующее занятие?')

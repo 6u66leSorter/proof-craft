@@ -7,7 +7,7 @@ import Database from 'better-sqlite3'
 import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 let temporaryRoot: string
 let app: NestFastifyApplication
@@ -200,7 +200,7 @@ const expectedStudentPortfolio = {
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-portfolio-students-')
+  const fixture = await createTestDatabase('proof-craft-portfolio-students-')
   temporaryRoot = fixture.temporaryRoot
   seedPortfolio(fixture.databasePath)
   process.env.DATABASE_URL = `file:${fixture.databasePath}`

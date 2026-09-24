@@ -1,30 +1,36 @@
-# Новый стек: NestJS API, бот и React-клиент. Legacy (bot/, src/) в контейнерах не используется.
-# Запуск: cp .env.docker.example .env.docker, заполнить значения, затем `docker compose up --build`.
+# Новый стек: NestJS API, бот и React-клиент.
+# Запуск одной командой: docker compose up --build  (сайт — http://localhost:${WEB_PORT:-8080}).
+# Переменные — в .env (шаблон .env.example); без него всё, кроме бота, работает на значениях по умолчанию.
 services:
   api:
     build:
       context: .
       dockerfile: backend/Dockerfile
     image: proof-craft-backend
-    env_file: .env.docker
+    env_file:
+      - path: .env
+        required: false
     environment:
       INIT_SCHEMA: "1"
     volumes:
-      - barber-data:/app/legacy/data
+      - barber-data:/app/data
     restart: unless-stopped
 
   bot:
     image: proof-craft-backend
     command: ["node", "dist/bot-main.js"]
-    env_file: .env.docker
+    env_file:
+      - path: .env
+        required: false
     volumes:
-      - barber-data:/app/legacy/data
+      - barber-data:/app/data
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
       disable: true
-    restart: unless-stopped
+    # Без BOT_TOKEN бот завершается с кодом 0 и не перезапускается.
+    restart: on-failure
 
   web:
     build:

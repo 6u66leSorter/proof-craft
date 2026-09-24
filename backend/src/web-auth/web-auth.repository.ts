@@ -15,7 +15,7 @@ export abstract class WebAuthRepository {
     now: string,
   ): Promise<{ userId: number; telegramId: number } | null>
   abstract deleteSession(tokenHash: string): Promise<void>
-  /** Legacy `getOrCreateUser` для VK: по vk_user_id, затем по синтетическому telegram_id, иначе новый guest. */
+  /** Пользователь VK: по vk_user_id, затем по синтетическому telegram_id, иначе новый guest. */
   abstract findOrCreateVkUser(vkUserId: number, syntheticTelegramId: number, now: string): Promise<number>
   abstract appendAudit(userId: number, action: string, meta: object, now: string): Promise<void>
 }

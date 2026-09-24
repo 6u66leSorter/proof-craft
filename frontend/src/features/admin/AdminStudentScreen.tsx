@@ -10,8 +10,7 @@ import { openAdminChat } from './actions'
 import { useAdminStudentProfile, type AdminStudentProfile } from './api'
 
 /**
- * Секция работ у администратора. В legacy заголовок «Мои работы» лежит вне `section`, поэтому
- * `polishScreen` создаёт `section.card.ba-works`, переносит в неё только `h4` (подзаголовок теряется) и работы.
+ * Секция работ у администратора: `section.card.ba-works` с заголовком `h4` без подзаголовка.
  */
 function WorksSection({ children }: { children: ReactNode }) {
   return (
@@ -109,7 +108,7 @@ function Profile({ st, works }: { st: AdminStudentProfile; works: ReactNode }) {
   )
 }
 
-/** Карточка ученика у администратора (legacy `renderAdminStudentProfile` после `polishScreen`). */
+/** Карточка ученика у администратора. */
 export function AdminStudentScreen() {
   const studentId = useApp((s) => s.adminStudentId)
   const query = useAdminStudentProfile(studentId)

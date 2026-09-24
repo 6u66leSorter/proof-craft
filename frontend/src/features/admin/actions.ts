@@ -9,7 +9,7 @@ const message = (error: unknown) => (error instanceof Error && error.message) ||
 const post = (path: string, body: Record<string, unknown>) =>
   apiPost(useApp.getState().platform, path, { telegram_id: useApp.getState().appUserId, ...body })
 
-/** Одобрить или отклонить ученика на модерации (legacy `adminSetStudentStatus`). */
+/** Одобрить или отклонить ученика на модерации. */
 export async function setStudentStatus(queryClient: QueryClient, studentId: number, action: 'approve' | 'reject', teacherIds: number[] = []) {
   try {
     await post('/api/admin/students', {
@@ -47,7 +47,7 @@ export async function reviewProfileEdit(queryClient: QueryClient, editId: number
 
 export type StudentSettings = { lessons: string; track: string; teacherIds: number[] }
 
-/** Сохранить занятия, категорию и преподавателей ученика (legacy `submitAdminStudentInline`). */
+/** Сохранить занятия, категорию и преподавателей ученика. */
 export async function saveStudentSettings(queryClient: QueryClient, studentId: number, settings: StudentSettings) {
   const lessons = settings.lessons.trim()
   try {

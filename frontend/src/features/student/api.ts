@@ -41,7 +41,7 @@ export async function fetchStudentHomeworks(_ctx?: QueryFunctionContext): Promis
   return data.homeworks ?? []
 }
 
-/** Работы ученика; как в legacy, перечитываются при каждом открытии главной и вкладки «Работы». */
+/** Работы ученика; перечитываются при каждом открытии главной и вкладки «Работы». */
 export function useStudentHomeworks() {
   const appUserId = useApp((s) => s.appUserId)
   return useQuery({ queryKey: ['student', 'homeworks', appUserId], queryFn: fetchStudentHomeworks, refetchOnMount: 'always' })

@@ -11,7 +11,7 @@ const setLogin = (webLogin: ReturnType<typeof useApp.getState>['webLogin']) => u
 
 /**
  * Вход на сайт: одноразовый запрос, подтверждение в Telegram/VK во внешней вкладке
- * и опрос статуса до выдачи web-сессии (legacy `startWebsiteLogin`).
+ * и опрос статуса до выдачи web-сессии.
  */
 export async function startWebsiteLogin(provider: 'telegram' | 'vk') {
   setLogin({ status: 'starting', error: '', provider, token: null })

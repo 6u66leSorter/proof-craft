@@ -1,4 +1,4 @@
-/** SVG-иконки legacy-клиента (ICO), перенесённые в JSX без изменения разметки. */
+/** SVG-иконки интерфейса. */
 export const ICO = {
   back: <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M13 4L7 10L13 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>,
   forward: <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M7 4L13 10L7 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>,

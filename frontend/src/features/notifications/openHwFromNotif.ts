@@ -8,7 +8,7 @@ import { fetchStudentHomeworks } from '../student/api'
 import { fetchTeacherStudentHomeworks, teacherStudentHomeworksKey, type TeacherStudent } from '../teacher/api'
 import type { AppNotification } from './api'
 
-/** Открыть работу из уведомления (legacy `openHwFromNotif`). */
+/** Открыть работу из уведомления. */
 export async function openHwFromNotif(queryClient: QueryClient, notification: AppNotification, homeworkId: number, studentId: number) {
   const { platform, appUserId, session } = useApp.getState()
   if (notification.id > 0) {

@@ -12,7 +12,7 @@ export const useStudentSearch = (scope: Scope) => useApp((s) => s.studentSearch[
 const patchSearch = (scope: Scope, patch: Partial<StudentSearchState>) =>
   useApp.getState().patch({ studentSearch: { ...useApp.getState().studentSearch, [scope]: { ...useApp.getState().studentSearch[scope], ...patch } } })
 
-/** Совпадает ли ученик с поиском и категорией (legacy `addStudentSearch` → `filter`). */
+/** Совпадает ли ученик с поиском и категорией. */
 export function matchesSearch(search: StudentSearchState, student: SearchableStudent) {
   const words = normalize(search.query).split(/\s+/).filter(Boolean)
   return (student.student_track || 'student') === search.track && words.every((word) => normalize(student.full_name).includes(word))
@@ -54,14 +54,13 @@ type PanelProps = {
 }
 
 /**
- * Категории, строка поиска и список учеников с фильтрацией (legacy `addStudentSearch`, который
- * дописывает эти элементы в экран после рендера: категории и поиск — в начало `.scr`, пустое состояние — в конец).
+ * Категории, строка поиска и список учеников с фильтрацией.
  */
 export function StudentSearchPanel({ scope, students, loaded, onOpenSingle, children }: PanelProps) {
   const search = useStudentSearch(scope)
   const inputRef = useRef<HTMLInputElement>(null)
   const wasOpen = useRef(search.open)
-  // Legacy фокусирует и выделяет поле сразу при открытии панели.
+  // Поле получает фокус и выделение сразу при открытии панели.
   useEffect(() => {
     if (search.open && !wasOpen.current) {
       inputRef.current?.focus()

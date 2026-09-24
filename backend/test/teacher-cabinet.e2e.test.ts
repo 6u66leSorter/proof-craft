@@ -9,7 +9,7 @@ import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
 import { UserNotificationGateway } from '../src/notifications/user-notification.gateway.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-teacher-cabinet-token'
 const teacherWebSessionToken = 'nest-teacher-cabinet-web-session'
@@ -189,7 +189,7 @@ const createPendingHomework = ({
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-teacher-cabinet-')
+  const fixture = await createTestDatabase('proof-craft-teacher-cabinet-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   ids = seedTeacherCabinet(databasePath)

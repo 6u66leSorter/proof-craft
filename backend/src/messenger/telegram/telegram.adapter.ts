@@ -32,7 +32,7 @@ export const toIncomingEvent = (update: TelegramUpdate): IncomingEvent | null =>
 
 /**
  * Telegram-адаптер: long polling getUpdates, последовательная обработка обновлений
- * (как в legacy) и отправка ответов с inline-кнопками и медиа.
+ * и отправка ответов с inline-кнопками и медиа.
  */
 @Injectable()
 export class TelegramAdapter implements ChannelPort, OnApplicationShutdown {

@@ -11,7 +11,7 @@ export const guestHomeworkAttachmentFileUrl = (homeworkId: number, attachmentId:
 
 export const guestStudentAvatarUrl = (studentId: number) => apiUrl(`/api/guest/students/${enc(studentId)}/avatar`)
 
-/** Скачивает файл с заголовками авторизации и открывает его во вкладке (legacy `__ba_openFile`). */
+/** Скачивает файл с заголовками авторизации и открывает его во вкладке. */
 export async function openFile(url: string, onError: (message: string) => void) {
   try {
     const response = await fetch(url, { headers: buildHeaders(useApp.getState().platform) })

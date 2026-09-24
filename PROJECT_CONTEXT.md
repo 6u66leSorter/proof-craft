@@ -2,34 +2,27 @@
 
 ## Назначение
 
-**Дневник академии** — веб-приложение для барбер-академии, доступное как обычный сайт, а также из Telegram Mini App и VK Mini App. На сайте пользователь подтверждает вход через связанный Telegram- или VK-аккаунт. Оно сопровождает путь ученика: заявка и модерация, обучение, сдача и проверка домашних заданий, коммуникация и уведомления. Telegram-бот предоставляет параллельный интерфейс регистрации, проверки ДЗ и администрирования.
+**Дневник академии** — веб-приложение для барбер-академии, доступное как обычный сайт, а также из Telegram Mini App и VK Mini App. На сайте пользователь подтверждает вход через связанный Telegram- или VK-аккаунт. Оно сопровождает путь ученика: заявка и модерация, обучение, сдача и проверка домашних заданий, коммуникация и уведомления. Бот предоставляет параллельный интерфейс подтверждения входа, модерации, проверки ДЗ и администрирования.
 
 ## Технологии
 
-- Клиент: vanilla JavaScript, CSS, Vite 7 (`src/`); один билд выбирает Telegram/VK по launch-параметрам.
-- Сервер: Node.js (ES modules), Fastify 5, Zod, `@fastify/cors`, `@fastify/multipart`.
-- Новый backend: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`). Все 58 маршрутов legacy API реализованы и имеют статус `nest-ready`; production продолжает обслуживать legacy API до переключения routing. Telegram-бот перенесён в `backend/src/messenger/` (отдельный процесс `bot-main.ts`, мессенджер-независимые сценарии и адаптеры; следующий — MAX); legacy `bot/registrationBot.js` остаётся до переключения.
-- Бот: `node-telegram-bot-api`.
-- Данные: SQLite через `better-sqlite3`; изображения обрабатывает `sharp`.
-- Прод: PM2 и nginx (маршрутизация `/api` поддерживает сценарий, где nginx срезает префикс).
-- VK: конфигурация размещения и скрипт деплоя есть в корне. `mini-app/` — отдельный шаблон React/VKUI, не являющийся основным фронтендом.
+Проект — переписанная на современный стек версия legacy-приложения академии (исходник живёт в отдельном репозитории `barber-academy-madcup`; этот репозиторий не production и готовится к хакатону MAX). Legacy-код (`bot/`, `src/`) удалён после переноса; история — в Git и `docs/migration/`.
+
+- Backend: NestJS 12 с Fastify adapter, TypeScript, Prisma 7.10 поверх SQLite (`@prisma/adapter-better-sqlite3`) — `backend/`. Реализованы все 58 маршрутов API.
+- Бот: `backend/src/messenger/` — мессенджер-независимые сценарии поверх тех же use cases, что и HTTP API; Telegram-адаптер (fetch, long polling); отдельный процесс `bot-main.ts`. Следующий адаптер — MAX.
+- Клиент: React 19 + TypeScript + Vite 8, Zustand, TanStack Query — `frontend/`; вид совпадает с legacy попиксельно. Один билд работает как сайт, Telegram Mini App и VK Mini App.
+- Изображения: `sharp`. Запуск: Docker Compose (`api`, `bot`, `web` на nginx).
 
 ## Карта каталогов
 
 | Путь | Содержание |
 | --- | --- |
-| `src/` | Основной фронтенд: `main.js` загружает Telegram SDK и запускает `newFrontApp.js`; `index.css` — стили. |
-| `bot/` | API (`apiServer.js`), Telegram-бот (`registrationBot.js`), SQLite-схема/миграции (`database.js`) и сервисы запросов (`dbService.js`). |
-| `backend/` | Новый NestJS backend, общая проверка Telegram/VK/web-session credentials, Prisma schema и repository boundary; запускается рядом с legacy API и принимает только явно перенесённые маршруты. |
-| `frontend/` | Новый клиент (React 19 + TypeScript + Vite 8) в отдельном пакете: все экраны legacy перенесены и проверены попиксельно, ещё не опубликован; `frontend/visual/` — визуальный baseline legacy-клиента и приёмка нового. Legacy `src/` не меняется и остаётся production. |
-| `docs/migration/` | Реестр API, решения по legacy-поведению и этапный план миграции. |
-| `docs/db/schema.dbml` | Актуализируемая ER-диаграмма основных таблиц. |
-| `testing/atac/` | Импортируемая коллекция ATAC/Postman и smoke-сценарии API. |
-| `public/` | Публичные статические ресурсы Vite. |
-| `files_new/` | HTML/CSS-макет, служащий визуальным ориентиром. |
-| `mini-app/` | Независимый стартовый React/VKUI-шаблон; его код не подключён к корневой сборке. |
-| `data/` | Локальная SQLite БД и загруженные файлы в рантайме; намеренно не коммитируется. |
-| `.github/` | GitHub-метаданные (при доработках проверить отдельно). |
+| `backend/` | NestJS API и бот: модули по доменам, общая проверка Telegram/VK/web-session credentials, Prisma schema, `prisma/schema.sql` (схема SQLite), `src/database/init-schema.ts`, e2e-тесты в `test/`. |
+| `frontend/` | React-клиент; `src/styles/` — стили (перенесены из legacy без изменений), `public/` — статика, `visual/` — Playwright-тесты с эталонными скриншотами. |
+| `docker-compose.yml`, `.env.example`, `.dockerignore` | Запуск всего стека одной командой. |
+| `docs/migration/` | Реестр API, решения по legacy-поведению, планы переноса backend и frontend. |
+| `docs/db/schema.dbml` | ER-диаграмма основных таблиц. |
+| `data/` | Локальная SQLite и загруженные файлы в рантайме; не коммитится. |
 
 ## Роли и основные сценарии
 
@@ -37,15 +30,15 @@
 - **Ученик:** регистрируется, ожидает модерации, просматривает профиль и ДЗ, отправляет/редактирует ДЗ и доработки, получает уведомления, общается в чате со своей командой, подаёт правки профиля.
 - **Преподаватель:** видит закреплённых учеников и их работы, выставляет оценку и комментарий, ведёт чат с учеником.
 - **Администратор:** модерирует учеников и заявки преподавателей, назначает преподавателей, управляет карточками учеников/преподавателей, рассматривает изменения профиля, просматривает аудит и уведомления.
-- **Telegram-бот:** реализует регистрацию, модерацию, сдачу и проверку ДЗ через команды `/start`, `/admin`, `/teacher`, `/reset`.
+- **Бот:** подтверждение входа на сайт, модерация и роли (`/admin`), проверка ДЗ (`/teacher`), приглашения к отзыву.
 
 ## Данные и база
 
-- Файл БД: `data/barber.db`; создаётся и мигрируется автоматически при запуске API/бота. Резервная копия: `npm run db:backup`.
+- Файл БД задаёт `DATABASE_URL` (в Docker — `/app/data/barber.db` в томе `barber-data`). Пустую базу создаёт `backend/src/database/init-schema.ts` из `backend/prisma/schema.sql`; существующую не меняет, миграций схемы пока нет.
 - Основные сущности: `users`, `user_roles`, `students`, `teachers`, `student_teachers`, `homeworks`, `homework_reviews`, `homework_comments`, `homework_files`, `chat_messages`, `app_notifications`, `audit_log`.
 - Дополнительные рабочие сущности: `teacher_applications`, `vk_link_tokens`, `student_profile_edits`, `web_login_requests`, `web_sessions`, `private_feedback`, `feedback_invites`. У профилей ученика и преподавателя есть текстовое поле `about_me`.
 - Обратная связь ученика хранится отдельно от чатов и доступна только ученику-автору при отправке и администраторам при просмотре. Преподаватели не получают её через API, уведомления или бот. После принятия уроков 5, 10 и 15 создаётся одно приглашение к отзыву; бот отправляет его при наличии `WEB_APP_URL` с HTTPS.
-- Файлы ДЗ и вложения API хранит в `data/uploads`; размер одного загружаемого файла ограничивается настройкой, по умолчанию 450 МБ.
+- Файлы ДЗ и вложения API хранит в каталоге `uploads` рядом с файлом БД; размер одного загружаемого файла ограничивается настройкой, по умолчанию 450 МБ.
 - В новом backend публичные файлы и вложения доступны только для `approved`-работ учеников `studying`; storage adapter безопасно открывает локальные файлы, проксирует Telegram file ID и генерирует JPEG-preview фото.
 - Авторизованная витрина `showcase` выбирает случайные `approved` фото/видео с существующим локальным или Telegram-файлом, исключает повторы по паре «ученик + файл» и циклически дополняет выборку после `exclude_ids`.
 - Уведомления в новом backend берут identity из проверенного credential: `GET /api/notifications` возвращает только записи этого user ID, парсит JSON payload и считает все непрочитанные записи независимо от лимита; `POST /api/notifications/read` отмечает одно или все уведомления только этого пользователя. Retention-cleanup и запись состояния изолированы в application services и Prisma repository.
@@ -80,66 +73,48 @@
 
 ## Запуск и развёртывание
 
-Локальный предпросмотр: `?preview=demo` открывает выбор четырёх деморолей. Vite проксирует `/api` на `127.0.0.1:8787`. Для локального API задавайте `API_HOST=127.0.0.1`, чтобы он был доступен только на компьютере. Публичный гостевой вход — `?guest=1`.
-
 ```bash
-npm install
-npm run dev       # фронтенд Vite
-npm run api       # API на порту из API_PORT или PORT (по умолчанию 8787)
-npm run bot       # Telegram-бот
-npm test          # characterization-тесты legacy API в изолированной временной копии
-npm run backend:dev    # NestJS на 127.0.0.1:8788
-npm run backend:build  # TypeScript-сборка NestJS
-npm --prefix backend run start:bot:dev  # бот NestJS (нужны BOT_TOKEN и DATABASE_URL)
-npm --prefix frontend run dev        # новый клиент на 5174 (в разработке)
-npm --prefix frontend run visual:test:next  # новый клиент против эталонов legacy
-npm run lint
-npm run build
+docker compose up --build              # весь стек: сайт http://localhost:8080, API, бот
+npm --prefix backend install && npm --prefix frontend install
+npm run backend:dev                    # NestJS на 127.0.0.1:8788 (нужен DATABASE_URL)
+npm run bot:dev                        # бот (нужны BOT_TOKEN и DATABASE_URL)
+npm run frontend:dev                   # клиент на 5174, /api → 8788
+npm test                               # e2e-тесты backend
+npm run visual:test                    # визуальные тесты клиента
+npm run typecheck
 ```
 
-- **Docker (новый стек):** `cp .env.docker.example .env.docker`, заполнить значения, `docker compose up --build`. Сервисы: `api` (NestJS, при старте создаёт схему SQLite legacy-миграциями, если базы нет), `bot` (тот же образ, `node dist/bot-main.js`), `web` (nginx со статикой React-клиента и прокси `/api` → `api`, порт `WEB_PORT`, по умолчанию 8080). База и `uploads` лежат в томе `barber-data`. Legacy `src/` и `bot/` в контейнерах не используются.
-- Для локальной проверки API без Telegram-подписи: `TG_WEBAPP_AUTH=off npm run api`.
-- Для визуального локального предпросмотра в обычном браузере запустить API в этом режиме и открыть Vite по адресу `http://127.0.0.1:5173/?preview=1`. Этот режим существует только в Vite-разработке, использует тестовый идентификатор и не доступен в production-сборке.
-- Управление локальными данными: `npm run db`, `npm run db:users`, `npm run db:backup`; выдача ролей — `npm run setup:admin` и `npm run setup:teacher`.
-- Прод работает на Node 20; зависимости это допускают (самое жёсткое требование — Vite: `^20.19.0 || >=22.12.0`). `deploy.sh` удаляет `node_modules` и ставит заново на сервере, поэтому расхождение с локальной версией само по себе не мешает.
-- Файл `deploy.sh` закоммичен без бита исполнения, запускать через `bash deploy.sh`.
-- Серверный деплой выполняет `deploy.sh`: создаёт бэкап БД, получает изменения Git, ставит зависимости, собирает фронтенд и перезапускает PM2 через `ecosystem.config.cjs`.
-- VK-сборка: `npm run build:vk`; размещение: `npm run deploy:vk`. Перед реальным деплоем проверить настройки хостинга и переменные окружения.
+- **Docker:** переменные — в `.env` по шаблону `.env.example`; без `.env` поднимаются сайт и API, бот пишет, что `BOT_TOKEN` не задан, и завершается. Чистая сборка без кэша — около 1,5 минуты. Сервисы: `api` (NestJS, при старте создаёт схему, если база пустая), `bot` (тот же образ, `node dist/bot-main.js`), `web` (nginx со статикой клиента и прокси `/api` → `api`, порт `WEB_PORT`, по умолчанию 8080). База и `uploads` — в томе `barber-data`.
+- Пустая база локально: `DATABASE_URL=file:/abs/path/barber.db npx --prefix backend tsx backend/src/database/init-schema.ts`.
 
 ## Конфигурация и секреты
 
 Значения секретов не хранятся в репозитории. `.env` исключён из Git. Используемые переменные:
 
 - `BOT_TOKEN` (также поддерживаются `TELEGRAM_BOT_TOKEN`, `VITE_TELEGRAM_BOT_TOKEN`), `WEB_APP_URL`, `TELEGRAM_BOT_USERNAME` (без `@`, нужен для входа с сайта через Telegram);
-- `API_PORT` или `PORT`, `VITE_API_BASE_URL`, `API_PREFIX_STRIP_REWRITE`;
 - `TG_WEBAPP_AUTH` (`off`, `optional`, `strict`), `MAX_HOMEWORK_UPLOAD_MB`, `CHAT_ENABLED`;
 - `APP_NOTIFICATIONS_RETENTION_DAYS` (от 7 до 365, по умолчанию 90);
 - `VK_APP_ID`, `VITE_VK_APP_ID`, `VK_ID_OFFSET`, `VK_APP_SECRET`.
-- Для параллельного NestJS: `NEST_API_HOST` (по умолчанию `127.0.0.1`) и `NEST_API_PORT` (по умолчанию `8788`).
-- NestJS требует `DATABASE_URL=file:/absolute/path/to/barber.db`, поскольку `SessionModule` читает существующую SQLite. На baseline-этапе разрешён только SQLite; сам обработчик `/health` запросов к БД не выполняет.
+- `NEST_API_HOST` (по умолчанию `127.0.0.1`) и `NEST_API_PORT` (по умолчанию `8788`); `WEB_PORT` — порт сайта в Docker.
+- `DATABASE_URL=file:/absolute/path/to/barber.db` обязателен для API и бота; поддерживается только SQLite.
 
-**Как переменные попадают в API.** `bot/apiServer.js` не импортирует dotenv, в отличие от `bot/registrationBot.js`. Процесс API получает только то, что перечислено в блоке `env:` для `barber-api` в `ecosystem.config.cjs`. Переменная, добавленная в `.env`, но не указанная там, до API не доходит, и работает умолчание из кода. При добавлении новой переменной для API её нужно прописать в обоих местах.
+**Как переменные попадают в процессы.** В Docker — через `env_file: .env` в `docker-compose.yml`; локально — через окружение shell.
 
 Для production Telegram-аутентификация должна быть `strict`, а секрет VK должен быть задан, если требуется строгая проверка подписи launch-параметров. Веб-сессии хранят на сервере только SHA-256 хэш непрозрачного токена; не добавляйте токены сессий в логи или репозиторий.
 
 ## Тестирование
 
-- `npm test` запускает characterization-тесты legacy API и e2e-тесты NestJS. Legacy-тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
-- Проверка NestJS отдельно: `npm run test:backend`, `npm --prefix backend run typecheck`, `npm run backend:build`.
-- Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичное портфолио, showcase, уведомления, работы, read-маршруты чата, профили student/teacher и аватары ученика, включая profile-edit транзакцию и уведомления, multipart-загрузку, cleanup, approved-only доступ, ролевую матрицу файлов, preview, credential-проверку, retention и изоляцию по user ID.
-- `VISUAL_BACKEND=split npm --prefix frontend run visual:test` прогоняет тот же набор через split-routing: маршруты `nest-ready` обслуживает NestJS, остальные — legacy; `VISUAL_BACKEND=split npm --prefix frontend run compare -- <роль>` открывает клиенты на этой связке.
-- `npm --prefix frontend run visual:test` сравнивает legacy-клиент с 266 эталонными скриншотами на изолированном legacy API и отдельной SQLite (`frontend/README.md`). Эталоны — критерий «1 в 1» для нового клиента.
-- `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
-- `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.
-- Перед изменениями API проверять затронутые сценарии ATAC; для клиентских изменений вручную проходить сценарий соответствующей роли в Telegram и VK.
+- `npm test` — e2e-тесты NestJS (включая бота на поддельном Telegram-сервере); каждый тест создаёт временную SQLite из `schema.sql` и не трогает рабочие данные.
+- `npm run visual:test` — 268 проверок клиента (скриншоты с `threshold 0` и поведение) на стенде NestJS с детерминированным сидом, см. `frontend/README.md`. Эталоны сняты с legacy-клиента.
+- `npm run typecheck` — TypeScript backend и frontend.
+- `docs/migration/API_INVENTORY.md` — реестр 58 маршрутов; `docs/migration/BEHAVIOR_DECISIONS.md` — отличия от legacy и исправленные дефекты.
 
 ## Текущее техническое состояние
 
-- Последний зафиксированный коммит на момент создания документа: `8850f28` (`fix: fixed avatar frame`). Рабочее дерево уже содержало удаление `CLAUDE.md`; этот документ его не меняет.
-- Основной UI — крупный модуль `src/newFrontApp.js`, использующий ручной рендеринг DOM и глобальные обработчики `window.__ba_*`; изменения в нём требуют аккуратной регресс-проверки ролей.
-- API содержит развившуюся SQLite-схему с миграциями в `bot/database.js`; `docs/db/schema.dbml` полезна как карта, но перед изменением БД источником истины считать миграции.
-- API предупреждает при наличии токена бота и режиме Telegram-аутентификации, отличном от `strict`: в production это риск обхода проверки init data.
-- Старый шаблон `mini-app/` и макеты `files_new/` не следует править как рабочий клиент без явного решения о миграции/подключении.
+- Legacy-код удалён; схема БД хранится в `backend/prisma/schema.sql`, Prisma миграциями пока не управляет.
+- Бот проверен только на поддельном Telegram-сервере; проверка в реальных Telegram/VK не проводилась.
+- Служебные скрипты legacy (выдача ролей, CLI базы, бэкап, демо-сиды) не перенесены: первого администратора в Docker пока нужно назначать вручную в SQLite.
+- `SEC-004` (перебор VK-кода) не исправлен.
 
 ## Правила актуализации
 
@@ -154,7 +129,6 @@ npm run build
 
 ## Ближайшие задачи
 
-1. В production включить `TG_WEBAPP_AUTH=strict` и проверить корректность Telegram init data.
-2. Добавить воспроизводимые автоматические тесты критических API-сценариев поверх имеющейся ATAC-коллекции.
-3. Снизить связность основного фронтенда: постепенно разделить `src/newFrontApp.js` на модули и покрыть регрессионными проверками.
-4. Перед развитием VK-клиента определить судьбу `mini-app/`: удалить/архивировать шаблон либо явно синхронизировать его с основным интерфейсом.
+1. Адаптер MAX для бота и поддержка MAX Mini App в клиенте и авторизации.
+2. Демо-режим и CLI выдачи ролей для проверки на хакатоне.
+3. README по требованиям хакатона, публичный деплой, PDF-презентация.

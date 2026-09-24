@@ -7,10 +7,14 @@ import { TelegramAdapter } from './messenger/telegram/telegram.adapter.js'
 
 /** Отдельный процесс бота: те же модули и Prisma, что у API, но без HTTP-сервера. */
 const bootstrap = async (): Promise<void> => {
+  const token = process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN
+  if (!token) {
+    // Не ошибка: стек без бота (сайт и API) — допустимая конфигурация, перезапуск не нужен.
+    new Logger('Bot').warn('BOT_TOKEN не задан — бот не запущен. Укажите его в .env и перезапустите контейнер bot.')
+    return
+  }
   const app = await NestFactory.createApplicationContext(MessengerModule, { logger: ['error', 'warn', 'log'] })
   app.enableShutdownHooks()
-  const token = process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN
-  if (!token) throw new Error('Не найден BOT_TOKEN: Telegram-адаптер не может запуститься.')
   const telegram = app.get(TelegramAdapter)
   telegram.start(token)
   const invites = app.get(FeedbackInvitesWorker).start(telegram, process.env.WEB_APP_URL)

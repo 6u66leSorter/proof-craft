@@ -7,7 +7,7 @@ import { Test } from '@nestjs/testing'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { AppModule } from '../src/app.module.js'
 import { UserNotificationGateway } from '../src/notifications/user-notification.gateway.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-student-profile-token'
 const webSessionToken = 'nest-student-profile-web-session'
@@ -123,7 +123,7 @@ const readTeacher = (telegramId: number): { about_me: string | null; updated_at:
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-student-profile-')
+  const fixture = await createTestDatabase('proof-craft-student-profile-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   seedStudentProfile(databasePath)

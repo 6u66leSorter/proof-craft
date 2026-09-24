@@ -9,7 +9,7 @@ const fail = (status: HttpStatus, error: string): HttpException => new HttpExcep
 const hash = (token: string): string => crypto.createHash('sha256').update(token, 'utf8').digest('hex')
 
 /**
- * Связь Telegram- и VK-аккаунтов (legacy `/api/account/vk-link-*`): в Telegram выдаётся
+ * Связь Telegram- и VK-аккаунтов: в Telegram выдаётся
  * четырёхзначный код, в VK он подтверждается. Длина кода сохранена для совместимости клиентов и бота;
  * ограничение попыток — отдельное решение SEC-004.
  */

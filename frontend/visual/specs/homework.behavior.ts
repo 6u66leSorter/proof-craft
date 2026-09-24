@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { expect, TARGET, test } from '../fixtures'
+import { expect, test } from '../fixtures'
 import { photoFiles } from '../photos'
 
 const tab = (page: Page, name: string) => page.locator('.tb', { hasText: name }).click()
@@ -59,12 +59,6 @@ test.describe('домашние задания ученика: поведени�
     await page.getByRole('textbox', { name: 'Название стрижки' }).fill('Бонус')
     await page.getByRole('textbox', { name: 'Подробное описание...' }).fill('Техника')
     await page.getByRole('button', { name: 'Отправить на проверку' }).click()
-    if (TARGET === 'legacy') {
-      // Дефект legacy: номер требуется и для бонуса, хотя поле очищено и заблокировано.
-      await expect(toast(page)).toHaveText('Заполните номер задания, название и описание')
-      expect(mutations).toEqual([])
-      return
-    }
     await expect(page.getByText('Задание отправлено на проверку')).toBeVisible()
     expect(mutations).toHaveLength(1)
     expect(multipartField(mutations[0].body, 'is_bonus')).toBe('1')
@@ -121,8 +115,7 @@ test.describe('домашние задания ученика: поведени�
     await expect.poll(() => mutations.length).toBe(1)
     expect(mutations).toEqual([{ method: 'POST', path: '/api/homeworks/1/comments', body: { telegram_id: 3001, text_content: 'Спасибо!' } }])
     await expect(field).toHaveValue('')
-    // Дефект legacy: тост стирается перерисовкой сразу после показа; новый клиент его показывает.
-    if (TARGET === 'next') await expect(toast(page)).toHaveText('Комментарий отправлен')
+    await expect(toast(page)).toHaveText('Комментарий отправлен')
   })
 
   test('исправление работы уходит с описанием', async ({ page, mutations }) => {
@@ -136,7 +129,7 @@ test.describe('домашние задания ученика: поведени�
     expect(multipartField(mutations[0].body, 'revision_text')).toBe('Выровняла переход')
     // После обновления работы поле показывает сохранённое на сервере исправление (здесь сервер не менялся).
     await expect(correction).toHaveValue('Поправила окантовку и переход на висках.')
-    if (TARGET === 'next') await expect(toast(page)).toHaveText('Исправление отправлено')
+    await expect(toast(page)).toHaveText('Исправление отправлено')
   })
 
   test('правка работы на проверке удаляет фото и сохраняет поля', async ({ page, mutations }) => {
@@ -152,8 +145,7 @@ test.describe('домашние задания ученика: поведени�
     expect(mutations).toHaveLength(1)
     expect(mutations[0].method).toBe('PATCH')
     expect(mutations[0].path).toBe('/api/student/homeworks/4')
-    // Дефект legacy: перед отправкой модалка перерисовывается и введённое название теряется.
-    expect(multipartField(mutations[0].body, 'haircut_name')).toBe(TARGET === 'legacy' ? 'Борода' : 'Борода и усы')
+    expect(multipartField(mutations[0].body, 'haircut_name')).toBe('Борода и усы')
     expect(multipartField(mutations[0].body, 'text_content')).toBe('Оформление бороды.')
     expect(multipartField(mutations[0].body, 'remove_primary')).toBe('1')
   })

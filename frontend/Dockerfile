@@ -1,5 +1,5 @@
 # Образ web: сборка React-клиента и nginx со статикой и прокси /api → api.
-# Контекст сборки — корень репозитория: клиент использует общие стили и public/ legacy.
+# Контекст сборки — корень репозитория (общий с backend/Dockerfile).
 
 FROM node:22-bookworm-slim AS build
 WORKDIR /build/frontend
@@ -10,9 +10,7 @@ RUN node -e "import('rolldown').then(() => process.exit(0), () => process.exit(1
  || npm install --no-save --ignore-scripts "@rolldown/binding-linux-$(node -p process.arch)-gnu@$(node -p "require('rolldown/package.json').version")"
 COPY frontend/index.html frontend/vite.config.ts frontend/tsconfig.json ./
 COPY frontend/src ./src
-COPY src/index.css /build/src/index.css
-COPY files_new/styles.css /build/files_new/styles.css
-COPY public /build/public
+COPY frontend/public ./public
 # Клиент ходит в относительный /api — тот же origin, что и nginx.
 RUN node node_modules/vite/bin/vite.js build
 

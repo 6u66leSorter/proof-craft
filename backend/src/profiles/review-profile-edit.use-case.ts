@@ -36,7 +36,7 @@ export class ReviewProfileEditUseCase {
         command.action,
       )
     } catch {
-      // Legacy не отменяет уже обработанную заявку при ошибке вспомогательного аудита.
+      // Уже обработанная заявка не отменяется при ошибке вспомогательного аудита.
     }
     return { ok: true }
   }

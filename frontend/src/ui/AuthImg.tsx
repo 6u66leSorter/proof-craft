@@ -3,7 +3,7 @@ import { buildHeaders } from '../api/client'
 import { useApp } from '../app/store'
 
 const FALLBACK = '/academy-role-logo.jpg'
-/** Кэш на время жизни страницы, как `authImgCache` legacy: один запрос на URL. */
+/** Кэш на время жизни страницы: один запрос на URL. */
 const cache = new Map<string, Promise<string>>()
 
 function loadBlobUrl(src: string): Promise<string> {
@@ -21,15 +21,15 @@ function loadBlobUrl(src: string): Promise<string> {
 /** Забыть закэшированную картинку (например, после замены аватара). */
 export const forgetAuthImage = (src: string) => cache.delete(src)
 
-/** Забыть все картинки (legacy `authImgCache.clear()` после правки фото работы). */
+/** Забыть все картинки. */
 export const clearAuthImages = () => cache.clear()
 
 type AuthImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & { src: string }
 
 /**
- * Картинка из API с заголовками авторизации (legacy `img[data-auth-src]` + `loadAuthImages`).
+ * Картинка из API с заголовками авторизации.
  * Атрибут `data-auth-src` сохранён: по нему визуальные тесты ждут загрузку.
- * При ошибке показывается логотип академии, как в legacy `polishScreen`.
+ * При ошибке показывается логотип академии.
  */
 export function AuthImg({ src, alt, ...rest }: AuthImgProps) {
   const [url, setUrl] = useState<string | undefined>(undefined)

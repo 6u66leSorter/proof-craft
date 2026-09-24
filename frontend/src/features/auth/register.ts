@@ -8,7 +8,7 @@ export type RegisterRole = 'student' | 'teacher' | 'admin' | 'guest'
 
 const errorMessage = (error: unknown, fallback: string) => (error instanceof Error && error.message) || fallback
 
-/** Выбор роли на стартовом экране (legacy `__ba_pickRegisterRole`). */
+/** Выбор роли на стартовом экране. */
 export function pickRegisterRole(role: RegisterRole) {
   const app = useApp.getState()
   if (role === 'guest') {
@@ -80,7 +80,7 @@ export async function submitTeacherApplication(form: TeacherForm) {
   }
 }
 
-/** Привязка VK к аккаунту по коду из Telegram (legacy `confirmVkBind`). */
+/** Привязка VK к аккаунту по коду из Telegram. */
 export async function confirmVkBind(rawCode: string) {
   const token = rawCode.trim().replace(/\D/g, '').slice(0, 4)
   if (token.length !== 4) {

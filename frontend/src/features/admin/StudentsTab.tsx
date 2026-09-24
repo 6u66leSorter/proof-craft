@@ -18,8 +18,8 @@ const TRACK_HINT = {
 }
 
 /**
- * Настройка ученика. Legacy перерисовывает её при каждом открытии, поэтому значения берутся из данных заново;
- * подсказку и блокировку преподавателей для «Барбера» дописывает `polishScreen`.
+ * Настройка ученика. Значения берутся из данных заново при каждом открытии;
+ * для «Барбера» показывается подсказка, а выбор преподавателей блокируется.
  */
 function SettingsPanel({ s, teachers, open }: { s: AdminStudent; teachers: AdminTeacher[]; open: boolean }) {
   const queryClient = useQueryClient()
@@ -152,7 +152,6 @@ function StudentCard({ s, teachers, hidden }: { s: AdminStudent; teachers: Admin
         </div>
       </div>
       <div style={{ display: 'flex', gap: 5, marginTop: 10, flexWrap: 'wrap' }}>
-        {/* Legacy polishScreen заменяет title «Профиль» подписью «Открыть карточку». */}
         <button className="btn bs" onClick={() => openAdminStudent(s.id)} {...iconButtonLabel('Открыть карточку')}>
           {ICO.eye}
         </button>
@@ -175,7 +174,7 @@ const logoutButton = (
   </button>
 )
 
-/** Все ученики с поиском и настройкой (legacy вкладка `students`). */
+/** Все ученики с поиском и настройкой. */
 export function StudentsTab() {
   const students = useAdminStudents()
   const teachers = useAdminTeachers()

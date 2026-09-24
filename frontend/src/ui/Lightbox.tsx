@@ -32,7 +32,7 @@ const arrowStyle = {
   lineHeight: 0,
 } as const
 
-/** Клавиатура для просмотра фото: Esc, ←, → (legacy глобальный keydown). */
+/** Клавиатура для просмотра фото: Esc, ←, →. */
 export function useLightboxKeys() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -53,7 +53,7 @@ export function useLightboxKeys() {
   }, [])
 }
 
-/** Полноэкранный просмотр фото (legacy `renderLightbox`). */
+/** Полноэкранный просмотр фото. */
 export function Lightbox() {
   const lb = useApp((s) => s.lightbox)
   const touchStartX = useRef<number | null>(null)

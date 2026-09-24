@@ -114,7 +114,7 @@ function Profile({ st, works }: { st: TeacherStudentProfile; works: React.ReactN
   )
 }
 
-/** Карточка ученика у преподавателя (legacy `renderTeacherStudent` после `polishScreen`). */
+/** Карточка ученика у преподавателя. */
 export function TeacherStudentScreen() {
   const studentId = useApp((s) => s.teacherStudentId)
   const selected = useApp((s) => s.selectedStudent) as { full_name?: string } | null

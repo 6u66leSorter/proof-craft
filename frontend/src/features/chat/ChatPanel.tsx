@@ -9,7 +9,7 @@ import { toast } from '../../ui/toast'
 import { chatQueryKey, sendChatMessage, useChatMessages, type ChatMessage } from './api'
 
 function Message({ m, ownUserId }: { m: ChatMessage; ownUserId: number }) {
-  // Legacy сравнивает с session.user_id, которого нет в ответе API, — все сообщения слева (перенесено 1 в 1).
+  // session.user_id в ответе API нет, поэтому все сообщения показываются слева — известное ограничение, сохранённое ради паритета.
   const mine = Number(m.sender_user_id) === ownUserId
   return (
     <div style={{ marginBottom: 8, textAlign: mine ? 'right' : 'left' }}>
@@ -36,7 +36,7 @@ function Message({ m, ownUserId }: { m: ChatMessage; ownUserId: number }) {
   )
 }
 
-/** Лента чата ученика с командой и поле ввода (legacy `renderChatScreen`). */
+/** Лента чата ученика с командой и поле ввода. */
 export function ChatPanel() {
   const session = useApp((s) => s.session)
   const selectedStudent = useApp((s) => s.selectedStudent) as { id?: number } | null

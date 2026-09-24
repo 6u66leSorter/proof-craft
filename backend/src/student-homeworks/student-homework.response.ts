@@ -12,9 +12,8 @@ const reviewResponse = (review: StudentHomeworkReview) => ({
 })
 
 /**
- * Карточка работы для клиента (legacy `mapHomeworkForClient`). Порядок полей совпадает с legacy.
- * `withReviewCount: false` — ответ на исправление: legacy берёт работу через `getHomeworkById`,
- * где нет `review_count`, и поле не попадает в JSON.
+ * Карточка работы для клиента. Порядок полей — часть контракта API.
+ * `withReviewCount: false` — ответ на исправление: в нём нет `review_count`.
  */
 export function studentHomeworkResponse(
   homework: StudentHomework,

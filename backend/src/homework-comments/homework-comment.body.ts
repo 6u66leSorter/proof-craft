@@ -13,7 +13,7 @@ export type HomeworkCommentRequest = AuthenticationRequest & {
 
 const MAX_COMMENT_LENGTH = 2000
 
-/** Legacy: `id` — положительное целое, `text_content` — строка 1..2000 символов после trim. */
+/** `id` — положительное целое, `text_content` — строка 1..2000 символов после trim. */
 export const parseHomeworkComment = (rawParams: unknown, rawBody: unknown): HomeworkCommentCommand => {
   const params = rawParams && typeof rawParams === 'object' ? (rawParams as Record<string, unknown>) : {}
   const homeworkId = Number(params.id)

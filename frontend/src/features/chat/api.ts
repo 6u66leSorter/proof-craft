@@ -33,7 +33,7 @@ export function useChatMessages(studentId: string | null) {
   })
 }
 
-/** Отправка текста в чат ученика; multipart, как в legacy. */
+/** Отправка текста в чат ученика (multipart). */
 export async function sendChatMessage(studentId: string, text: string) {
   const form = new FormData()
   form.append('telegram_id', String(useApp.getState().appUserId))

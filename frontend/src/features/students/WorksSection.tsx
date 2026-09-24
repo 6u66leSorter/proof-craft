@@ -9,8 +9,7 @@ import type { StudentHomework } from '../student/api'
 import { homeworkPhotoMeta } from '../student/HomeworksGrid'
 
 /**
- * Работа в профиле ученика у преподавателя и администратора. Legacy рендерит простую карточку,
- * а `polishScreen` добавляет класс `ba-work`, миниатюру и оборачивает текст в `<div>`.
+ * Работа в профиле ученика у преподавателя и администратора: карточка `ba-work` с миниатюрой.
  */
 export function WorkCard({ hw }: { hw: StudentHomework }) {
   const { thumbUrl } = homeworkPhotoMeta(hw)
@@ -26,7 +25,7 @@ export function WorkCard({ hw }: { hw: StudentHomework }) {
   )
 }
 
-/** Секция «Мои работы», в которую legacy `polishScreen` переносит список работ (класс `ba-works`). */
+/** Секция «Мои работы» со списком работ (класс `ba-works`). */
 export function WorksSection({ children }: { children: ReactNode }) {
   return (
     <section className="card ba-works" style={{ padding: 18 }}>

@@ -17,7 +17,7 @@ const overlay = {
   backdropFilter: 'blur(10px)',
 } as const
 
-/** Оверлей отправки ДЗ: загрузка, успех, ошибка (legacy `renderHomeworkSubmitOverlay`). */
+/** Оверлей отправки ДЗ: загрузка, успех, ошибка. */
 function SubmitOverlay() {
   const s = useApp((st) => st.hwSubmit)
   if (s.status === 'loading') {
@@ -125,7 +125,7 @@ function SubmitOverlay() {
   return null
 }
 
-/** Новое домашнее задание с фото (legacy `renderHwNew`). */
+/** Новое домашнее задание с фото. */
 export function HomeworkNewScreen() {
   const queryClient = useQueryClient()
   const busy = useApp((s) => s.hwSubmit.status !== 'idle')
@@ -253,7 +253,7 @@ export function HomeworkNewScreen() {
               </span>
             </label>
           </div>
-          {/* aria-label legacy ставит один раз при рендере, поэтому он не меняется вместе с placeholder. */}
+          {/* aria-label задаётся один раз и не меняется вместе с placeholder. */}
           <input
             className="inp"
             id="hw-num"

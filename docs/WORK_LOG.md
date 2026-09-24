@@ -16,6 +16,20 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-25 — Удаление legacy-кода
+
+- **Цель:** оставить в репозитории только новый стек.
+- **Сделано:** удалены `bot/`, `src/`, `mini-app/`, `files_new/`, `testing/`, `index.html`, корневые `vite.config.js`, `eslint.config.js`, `ecosystem.config.cjs`, `deploy.sh`, `vk-hosting-config.json`, `package-lock.json`, лишние файлы в корне; корневой `package.json` — только скрипты-обёртки. Стили и `public/` перенесены в `frontend/`. Визуальный стенд (`frontend/visual/api-stand/`) поднимает NestJS на SQLite из `schema.sql`; удалены режимы legacy/split, `ported.ts`, `deviations.ts`, `compare.mjs`, заглушка `NotPortedScreen`. Тесты backend создают базу через `initSchema`. Классы `Legacy*Storage` переименованы в `Local*`, комментарии-ссылки на функции legacy убраны или переписаны.
+- **Проверка:** backend 331/331, визуальные 268/268 (эталоны гостевой витрины пересняты: счётчик работ учитывает только одобренные — SEC-001), typecheck backend и frontend, `docker compose build --no-cache` — 116 с, стек поднимается на пустом томе. Всё — без корневого `node_modules`.
+- **Вывод:** `sharp` во `frontend` закреплён на 0.34.5 — от версии зависят пиксели фото сида.
+
+### 2026-09-24 — Docker по требованиям хакатона MAX
+
+- **Цель:** выполнить пункт 5 формата сдачи: воспроизводимый запуск одной командой, `.env.example`, `.dockerignore`, сборка не дольше 5 минут, только необходимые компоненты.
+- **Сделано:** образ backend больше не содержит legacy `bot/database.js`: итоговая схема выгружена в `backend/prisma/schema.sql`, пустую базу создаёт `dist/database/init-schema.js`. Шаблон переименован в `.env.example`, compose читает `.env` необязательно; бот без `BOT_TOKEN` пишет предупреждение и завершается с кодом 0 (`restart: on-failure`). Том смонтирован в `/app/data`.
+- **Проверка:** `docker compose build --no-cache` — 85 с; запуск без `.env` на пустом томе: схема создана, сайт 200, `/api/guest/portfolio-students` 200, бот корректно остановлен; запуск с `.env` на существующем томе: «Схема уже есть»; backend-тесты 331/331, включая сравнение `schema.sql` с legacy.
+- **Вывод:** изменения схемы до перехода на миграции Prisma нужно вносить и в `bot/database.js`, и в `schema.sql` — тест схемы это ловит.
+
 ### 2026-09-24 — Docker для нового стека
 
 - **Цель:** упаковать NestJS API, бота и React-клиент в контейнеры.

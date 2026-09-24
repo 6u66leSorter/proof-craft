@@ -40,7 +40,7 @@ async function sendFeedback() {
 const resetFeedback = () =>
   useApp.getState().patch({ feedback: { subject: 'teacher', message: '', key: null, busy: false, sent: false, error: '' } })
 
-/** Конфиденциальный отзыв администратору (legacy экран `feedback`). */
+/** Конфиденциальный отзыв администратору. */
 export function FeedbackScreen() {
   const f = useApp((s) => s.feedback)
   return (

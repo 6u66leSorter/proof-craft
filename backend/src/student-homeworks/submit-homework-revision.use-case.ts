@@ -21,7 +21,7 @@ const RESULT_ERRORS = {
 }
 
 /**
- * Исправление работы учеником (legacy `POST /api/student/homeworks/:homeworkId/revision`):
+ * Исправление работы учеником:
  * работа возвращается на проверку, преподаватели и администраторы получают Telegram- и in-app уведомления.
  */
 @Injectable()

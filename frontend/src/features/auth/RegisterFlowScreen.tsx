@@ -26,7 +26,7 @@ type FieldProps = {
   inputMode?: 'numeric'
 }
 
-/** Поле анкеты: legacy `polishScreen` дублирует placeholder в aria-label. */
+/** Поле анкеты: placeholder дублируется в aria-label. */
 function Field({ id, placeholder, value, onChange, last, inputMode }: FieldProps) {
   return (
     <input

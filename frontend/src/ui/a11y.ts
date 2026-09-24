@@ -1,8 +1,7 @@
 import type { KeyboardEvent } from 'react'
 
 /**
- * Кликабельная карточка-не-кнопка (legacy `polishScreen`: `.card[onclick]` получает
- * role=button, tabIndex=0 и активацию по Enter/пробелу).
+ * Кликабельная карточка-не-кнопка.
  */
 export const cardButtonProps = (onClick: () => void) => ({
   role: 'button' as const,
@@ -16,5 +15,5 @@ export const cardButtonProps = (onClick: () => void) => ({
   },
 })
 
-/** Кнопка-иконка без текста: legacy `polishScreen` дублирует подпись в aria-label и title. */
+/** Кнопка-иконка без текста: подпись дублируется в aria-label и title. */
 export const iconButtonLabel = (label: string) => ({ 'aria-label': label, title: label })

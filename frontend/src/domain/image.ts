@@ -1,4 +1,4 @@
-/** Сжатие фото перед отправкой: JPEG 0.92, длинная сторона до 2400px (legacy `compressImageToJpegFile`). */
+/** Сжатие фото перед отправкой: JPEG 0.92, длинная сторона до 2400px. */
 export function compressImageToJpegFile(file: File, maxSide = 2400): Promise<File> {
   return new Promise((resolve, reject) => {
     const img = new Image()

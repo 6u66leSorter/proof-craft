@@ -3,48 +3,21 @@ import type { VisualOptions } from './fixtures'
 
 const apiPort = Number(process.env.VISUAL_API_PORT || 18787)
 const appPort = Number(process.env.VISUAL_APP_PORT || 14173)
-const legacyViteBin = '../node_modules/vite/bin/vite.js'
-const nextViteBin = 'node_modules/vite/bin/vite.js'
-/** `legacy` снимает и проверяет эталоны; `next` сравнивает новый клиент с ними же. */
-export const target = process.env.VISUAL_TARGET === 'next' ? 'next' : 'legacy'
-
-// С нового клиента можно только дописать отсутствующие эталоны согласованных отклонений (visual/deviations.ts):
-// режим missing никогда не перезаписывает существующие эталоны legacy.
-const updateArgs = process.argv.filter((arg) => arg === '-u' || arg.startsWith('--update-snapshots'))
-if (target === 'next' && updateArgs.some((arg) => arg !== '--update-snapshots=missing')) {
-  throw new Error('Эталоны снимаются с legacy-клиента. Для нового клиента допустим только --update-snapshots=missing (отклонения).')
-}
-
-const appServer: { command: string; cwd: string; env: Record<string, string> } =
-  target === 'next'
-    ? {
-        command:
-          `node ${nextViteBin} build --logLevel warn && ` +
-          `node ${nextViteBin} preview --host 127.0.0.1 --port ${appPort} --strictPort`,
-        cwd: '..',
-        env: { VITE_API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
-      }
-    : {
-        command:
-          `node ${legacyViteBin} build --config visual/vite.legacy.config.mjs --logLevel warn && ` +
-          `node ${legacyViteBin} preview --config visual/vite.legacy.config.mjs --host 127.0.0.1 --port ${appPort} --strictPort`,
-        cwd: '..',
-        env: { VISUAL_API_PORT: String(apiPort) },
-      }
+const viteBin = 'node_modules/vite/bin/vite.js'
 
 /**
- * Визуальный baseline legacy-клиента. Эталоны лежат в `__screenshots__/<project>/`
- * и позже служат критерием приёмки для экранов нового клиента.
+ * Визуальные регрессионные тесты клиента. Эталоны лежат в `__screenshots__/<project>/`;
+ * они сняты с legacy-клиента и подтверждают паритет «1 в 1» после переноса на React.
  */
 export default defineConfig<VisualOptions>({
   testDir: '.',
   testMatch: ['**/*.visual.ts', '**/*.behavior.ts'],
-  outputDir: `./test-results/${target}`,
+  outputDir: './test-results',
   snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{arg}{ext}',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
-  reporter: [['list'], ['html', { outputFolder: `./playwright-report/${target}`, open: 'never' }]],
+  reporter: [['list'], ['html', { outputFolder: './playwright-report', open: 'never' }]],
   expect: {
     toHaveScreenshot: { maxDiffPixels: 0, threshold: 0, animations: 'disabled', caret: 'hide', scale: 'css' },
   },
@@ -77,16 +50,19 @@ export default defineConfig<VisualOptions>({
   ],
   webServer: [
     {
-      command: 'node visual/legacy-api/start.mjs',
+      command: 'node visual/api-stand/start.mjs',
       cwd: '..',
       url: `http://127.0.0.1:${apiPort}/health`,
-      // VISUAL_BACKEND=split: перенесённые маршруты обслуживает NestJS, остальные — legacy.
-      env: { VISUAL_API_PORT: String(apiPort), VISUAL_BACKEND: process.env.VISUAL_BACKEND || 'legacy' },
+      env: { VISUAL_API_PORT: String(apiPort) },
       reuseExistingServer: false,
       timeout: 60_000,
     },
     {
-      ...appServer,
+      command:
+        `node ${viteBin} build --logLevel warn && ` +
+        `node ${viteBin} preview --host 127.0.0.1 --port ${appPort} --strictPort`,
+      cwd: '..',
+      env: { VITE_API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
       url: `http://127.0.0.1:${appPort}`,
       reuseExistingServer: false,
       timeout: 120_000,

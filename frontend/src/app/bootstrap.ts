@@ -5,7 +5,7 @@ import { STORAGE_KEYS, local, session as sessionStore } from '../platform/storag
 import { useApp } from './store'
 
 /**
- * Определение платформы, сессии и стартового экрана — перенос legacy `bootstrap()`.
+ * Определение платформы, сессии и стартового экрана.
  * Dev-only режимы `?preview=…` намеренно не переносятся: демо-данные будут обеспечены MSW.
  */
 export async function bootstrap() {
@@ -87,7 +87,7 @@ export async function bootstrap() {
   }
 }
 
-/** Выход: сброс web-сессии, гостевого режима и навигации (legacy `logout`). */
+/** Выход: сброс web-сессии, гостевого режима и навигации. */
 export function logout() {
   const { platform } = useApp.getState()
   if (platform?.webSessionToken) {
@@ -112,7 +112,7 @@ export function logout() {
   void bootstrap()
 }
 
-/** Повторная попытка после ошибки (legacy `__ba_retry`). */
+/** Повторная попытка после ошибки. */
 export function retry() {
   useApp.getState().go('loading')
   void bootstrap()

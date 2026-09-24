@@ -100,14 +100,14 @@ export type SubmitRevisionCommand = {
   studentId: number
   homeworkId: number
   text: string
-  /** Новый файл исправления; null — прежний файл сохраняется (legacy COALESCE). */
+  /** Новый файл исправления; null — прежний файл сохраняется. */
   revisionFileId: string | null
   updatedAt: string
   notificationBody: string
   recipientUserIds: number[]
 }
 
-/** Порядок проверок legacy: работа ученика → статус «на доработке» → непустой текст. */
+/** Порядок проверок: работа ученика → статус «на доработке» → непустой текст. */
 export type SubmitRevisionResult = 'submitted' | 'not_found' | 'not_revision' | 'no_text'
 
 export type EditPendingHomeworkCommand = {
@@ -124,7 +124,7 @@ export type EditPendingHomeworkCommand = {
 
 export type EditPendingHomeworkResult = 'edited' | 'not_found' | 'not_pending'
 
-/** Строка работы как её отдаёт legacy `getHomeworkById`: все колонки `homeworks` плюс данные ученика. */
+/** Строка работы: все колонки `homeworks` плюс данные ученика. */
 export type RawHomeworkRow = Record<string, unknown> & { file_id: string | null }
 
 export abstract class StudentHomeworksRepository {

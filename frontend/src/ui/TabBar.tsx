@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 export type TabItem = { key: string; label: string; icon: ReactNode; count?: number }
 
-/** Нижняя панель вкладок (legacy `tabBar`). */
+/** Нижняя панель вкладок. */
 export function TabBar({ tabs, active, onSelect }: { tabs: TabItem[]; active: string; onSelect: (key: string) => void }) {
   return (
     <div className="tab">

@@ -9,11 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc",
     "visual:test": "playwright test -c visual/playwright.config.ts",
-    "visual:test:next": "VISUAL_TARGET=next playwright test -c visual/playwright.config.ts",
-    "visual:update": "playwright test -c visual/playwright.config.ts --update-snapshots=all",
-    "visual:legacy-api": "node visual/legacy-api/start.mjs",
-    "visual:approve-deviations": "VISUAL_TARGET=next playwright test -c visual/playwright.config.ts --update-snapshots=missing",
-    "compare": "node visual/tools/compare.mjs"
+    "visual:update": "playwright test -c visual/playwright.config.ts --update-snapshots=changed"
   },
   "devDependencies": {
     "@fontsource/nunito-sans": "^5.3.0",
@@ -23,7 +19,9 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "better-sqlite3": "12.11.1",
     "esbuild": "^0.28.2",
+    "sharp": "0.34.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
   },

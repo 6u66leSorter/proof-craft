@@ -43,7 +43,7 @@ function NotificationCard({ n }: { n: AppNotification }) {
   )
 }
 
-/** Лента уведомлений (legacy `renderNotifs`). До загрузки legacy показывает «Нет уведомлений». */
+/** Лента уведомлений. До загрузки показывает «Нет уведомлений». */
 export function NotificationsList() {
   const query = useNotifications()
   const items = query.data ?? []

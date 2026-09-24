@@ -68,7 +68,6 @@ function TeacherCard({ name }: { name: string }) {
           {name || 'Преподаватель'}
         </div>
       </div>
-      {/* Legacy polishScreen подписывает эту кнопку как «Открыть карточку» (проверка на 'Chat' чувствительна к регистру). */}
       <button type="button" className="btn bs" style={{ padding: '8px 10px', flexShrink: 0 }} onClick={() => setTab('chat')} {...iconButtonLabel('Открыть карточку')}>
         {ICO.chat}
       </button>

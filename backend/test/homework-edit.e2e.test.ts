@@ -10,7 +10,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing'
 import { AppModule } from '../src/app.module.js'
 import { getMultipartOptions } from '../src/common/multipart-options.js'
-import { createLegacyDatabase } from './support/legacy-database.js'
+import { createTestDatabase } from './support/test-database.js'
 
 const botToken = '123456:nest-edit-token'
 const tg = { student: 9301, other: 9302 }
@@ -87,7 +87,7 @@ const readState = (homeworkId: number) => {
 }
 
 before(async () => {
-  const fixture = await createLegacyDatabase('proof-craft-edit-')
+  const fixture = await createTestDatabase('proof-craft-edit-')
   temporaryRoot = fixture.temporaryRoot
   databasePath = fixture.databasePath
   const uploads = join(dirname(databasePath), 'uploads')

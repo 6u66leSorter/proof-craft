@@ -1,4 +1,3 @@
-/** Имена экранов совпадают с `state.scr` legacy-клиента. */
 export type ScreenName =
   | 'loading'
   | 'error'

@@ -1,13 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { test as base, expect, type Page } from '@playwright/test'
-import { VISUAL_SESSIONS } from './legacy-api/sessions.mjs'
-import { PORTED_SCENARIOS } from './ported'
-import { VISUAL_DEVIATIONS } from './deviations'
+import { VISUAL_SESSIONS } from './api-stand/sessions.mjs'
 
 export type Theme = 'light' | 'dark'
-/** Какой клиент проверяется: для исправленных в новом клиенте дефектов legacy ожидания различаются. */
-export const TARGET: 'legacy' | 'next' = process.env.VISUAL_TARGET === 'next' ? 'next' : 'legacy'
 export type Role = keyof typeof VISUAL_SESSIONS
 export type VisualOptions = { theme: Theme }
 
@@ -39,7 +35,6 @@ type SettleOptions = { waitForNetwork?: boolean }
 export type Mutation = { method: string; path: string; body: unknown }
 
 type VisualFixtures = {
-  portedGuard: void
   mutations: Mutation[]
   openAs: (role: Role | null, search?: string, options?: SettleOptions) => Promise<void>
   settle: () => Promise<void>
@@ -48,17 +43,6 @@ type VisualFixtures = {
 
 export const test = base.extend<VisualFixtures & VisualOptions>({
   theme: ['light', { option: true }],
-
-  portedGuard: [
-    async ({}, use, testInfo) => {
-      if (process.env.VISUAL_TARGET === 'next') {
-        const scenario = testInfo.titlePath.slice(1).join(' › ')
-        testInfo.skip(!PORTED_SCENARIOS.has(scenario), 'экран ещё не перенесён в новый клиент')
-      }
-      await use()
-    },
-    { auto: true },
-  ],
 
   mutations: async ({ page, baseURL }, use) => {
     const mutations: Mutation[] = []
@@ -131,8 +115,7 @@ export const test = base.extend<VisualFixtures & VisualOptions>({
       // Указатель остаётся там, где был последний клик, и даёт :hover на случайных элементах.
       await page.mouse.move(0, 0)
       await settlePage(page, options)
-      const snapshot = (suffix = '') =>
-        TARGET === 'next' && name in VISUAL_DEVIATIONS ? ['deviations', `${name}${suffix}.png`] : `${name}${suffix}.png`
+      const snapshot = (suffix = '') => `${name}${suffix}.png`
       await expect(page).toHaveScreenshot(snapshot())
       // Второй снимок раскрывает внутренний скролл `.scr`, чтобы сравнивать и содержимое ниже экрана.
       const expanded = await page.evaluate(() => {

@@ -32,4 +32,3 @@ data/
 *.env
 
 # Docker: секреты окружения
-.env.docker

@@ -6,7 +6,7 @@ import { toast } from '../../ui/toast'
 
 const message = (error: unknown, fallback: string) => (error instanceof Error && error.message) || fallback
 
-/** Выбор и загрузка нового аватара (legacy `__ba_changeAvatar`). */
+/** Выбор и загрузка нового аватара. */
 export function changeAvatar() {
   const input = document.createElement('input')
   input.type = 'file'

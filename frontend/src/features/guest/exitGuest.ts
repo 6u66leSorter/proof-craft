@@ -1,7 +1,7 @@
 import { useApp } from '../../app/store'
 import { STORAGE_KEYS, session } from '../../platform/storage'
 
-/** Выход из гостевой витрины (legacy `__ba_exitGuest`). */
+/** Выход из гостевой витрины. */
 export function exitGuest() {
   if (new URLSearchParams(window.location.search).get('guest') === '1') {
     window.location.assign(window.location.pathname)

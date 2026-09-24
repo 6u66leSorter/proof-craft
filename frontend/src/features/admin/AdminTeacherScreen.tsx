@@ -9,10 +9,10 @@ import { useAdminStudents, type AdminTeacher } from './api'
 
 const back = () => useApp.getState().back()
 
-/** Карточка преподавателя с его учениками (legacy `renderAdminTeacherDetail`). */
+/** Карточка преподавателя с его учениками. */
 export function AdminTeacherScreen() {
   const teacher = useApp((s) => s.selectedAdminTeacher) as AdminTeacher | null
-  // Legacy загружает учеников, только если их ещё нет.
+  // Учеников загружаем, только если их ещё нет.
   const students = useAdminStudents({ refetchOnMount: false })
   if (!teacher) {
     return (
