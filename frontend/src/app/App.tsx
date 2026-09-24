@@ -5,6 +5,8 @@ import { WebLoginScreen } from '../features/auth/WebLoginScreen'
 import { GuestHomeworkScreen } from '../features/guest/GuestHomeworkScreen'
 import { GuestPortfolioScreen } from '../features/guest/GuestPortfolioScreen'
 import { GuestStudentScreen } from '../features/guest/GuestStudentScreen'
+import { FeedbackScreen } from '../features/student/FeedbackScreen'
+import { StudentScreen } from '../features/student/StudentScreen'
 import { getTelegram } from '../platform/telegram'
 import { ErrorScreen } from '../screens/ErrorScreen'
 import { LoadingScreen } from '../screens/LoadingScreen'
@@ -27,6 +29,10 @@ function Screen({ name }: { name: ScreenName }) {
       return <RegisterRoleScreen />
     case 'register-flow':
       return <RegisterFlowScreen />
+    case 'student':
+      return <StudentScreen />
+    case 'feedback':
+      return <FeedbackScreen />
     case 'guest':
       return <GuestPortfolioScreen />
     case 'guest-student':

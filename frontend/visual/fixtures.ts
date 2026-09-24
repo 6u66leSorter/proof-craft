@@ -125,6 +125,8 @@ export const test = base.extend<VisualFixtures & VisualOptions>({
 
   snap: async ({ page }, use) => {
     await use(async (name, options = {}) => {
+      // Указатель остаётся там, где был последний клик, и даёт :hover на случайных элементах.
+      await page.mouse.move(0, 0)
       await settlePage(page, options)
       await expect(page).toHaveScreenshot(`${name}.png`)
       // Второй снимок раскрывает внутренний скролл `.scr`, чтобы сравнивать и содержимое ниже экрана.

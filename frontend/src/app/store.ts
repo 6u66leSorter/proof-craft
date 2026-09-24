@@ -38,6 +38,14 @@ type AppState = Selection & {
   teacherApplicationSent: boolean
   /** Вход на обычном сайте через подтверждение в Telegram или VK. */
   webLogin: WebLoginState
+  /** Модалка заявки на изменение профиля ученика. */
+  profileEdit: { open: boolean; busy: boolean; error: string }
+  /** Отзыв ученика администратору. */
+  feedback: { subject: 'teacher' | 'academy' | 'other'; message: string; key: string | null; busy: boolean; sent: boolean; error: string }
+  /** Генерация кода для входа из VK (только Telegram). */
+  vkLinkGenerate: { loading: boolean; token: string | null; expiresAt: string | null; error: string }
+  /** Меняется после загрузки нового аватара, чтобы картинка перезапросилась. */
+  avatarVersion: number
   /** Просмотр фото поверх экрана; сбрасывается при любом переходе. */
   lightbox: { items: PhotoItem[]; index: number } | null
   /** Категория учеников в гостевой витрине. */
@@ -68,6 +76,10 @@ export const useApp = create<AppState>()((set, get) => ({
   registerTab: 'reg',
   teacherApplicationSent: false,
   webLogin: WEB_LOGIN_IDLE,
+  profileEdit: { open: false, busy: false, error: '' },
+  feedback: { subject: 'teacher', message: '', key: null, busy: false, sent: false, error: '' },
+  vkLinkGenerate: { loading: false, token: null, expiresAt: null, error: '' },
+  avatarVersion: 0,
   lightbox: null,
   guestTrack: 'student',
   guestStudentId: null,

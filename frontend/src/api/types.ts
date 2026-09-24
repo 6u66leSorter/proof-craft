@@ -26,6 +26,8 @@ export type Session = {
   teacher: { id: number; full_name: string; about_me: string } | null
   unread_notifications_count: number
   vk_account_linked: boolean
+  /** Legacy-клиент сравнивает автора сообщения с этим полем, но API его не отдаёт. */
+  user_id?: number
 }
 
 export type WebAuthSession = { telegram_id: number }

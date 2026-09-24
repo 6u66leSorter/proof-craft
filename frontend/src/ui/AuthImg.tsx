@@ -18,6 +18,9 @@ function loadBlobUrl(src: string): Promise<string> {
   return pending
 }
 
+/** Забыть закэшированную картинку (например, после замены аватара). */
+export const forgetAuthImage = (src: string) => cache.delete(src)
+
 type AuthImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & { src: string }
 
 /**
