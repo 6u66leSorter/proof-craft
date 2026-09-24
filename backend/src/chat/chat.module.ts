@@ -8,6 +8,7 @@ import {
   ChatAvailabilityGuard,
   ChatMessageFileGuard,
   ChatMessagesQueryGuard,
+  ChatMessageMultipartGuard,
 } from './chat.guards.js'
 import { ChatRepository } from './chat.repository.js'
 import {
@@ -16,6 +17,9 @@ import {
 } from './chat.use-cases.js'
 import { GetChatMessageFileUseCase } from './get-chat-message-file.use-case.js'
 import { PrismaChatRepository } from './prisma-chat.repository.js'
+import { ChatAttachmentStorage } from './chat-attachment.storage.js'
+import { LegacyChatAttachmentStorage } from './legacy-chat-attachment.storage.js'
+import { SendChatMessageUseCase } from './send-chat-message.use-case.js'
 
 @Module({
   imports: [AuthModule, PersistenceModule, StorageModule],
@@ -25,10 +29,13 @@ import { PrismaChatRepository } from './prisma-chat.repository.js'
     ChatAvailabilityGuard,
     ChatMessageFileGuard,
     ChatMessagesQueryGuard,
+    ChatMessageMultipartGuard,
     GetChatMessageFileUseCase,
     ListChatMessagesUseCase,
     ListChatStudentsUseCase,
+    SendChatMessageUseCase,
     { provide: ChatRepository, useClass: PrismaChatRepository },
+    { provide: ChatAttachmentStorage, useClass: LegacyChatAttachmentStorage },
   ],
 })
 export class ChatModule {}

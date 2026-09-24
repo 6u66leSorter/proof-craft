@@ -419,6 +419,17 @@ const postJson = async (path, body, telegramUserId = null) => {
   return { response, body: await response.json() }
 }
 
+const postMultipart = async (path, fields, telegramUserId = null, file = null) => {
+  const body = new FormData()
+  for (const [key, value] of Object.entries(fields)) body.set(key, String(value))
+  if (file) body.set('file', new Blob([file.content], { type: file.type }), file.name)
+  const headers = telegramUserId == null
+    ? {}
+    : { 'X-Telegram-Init-Data': buildTelegramInitData(telegramUserId) }
+  const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers, body })
+  return { response, body: await response.json() }
+}
+
 const createPendingHomework = ({ studentId, lessonNumber, isBonus = 0 }) => {
   const db = new Database(legacyDatabasePath)
   const id = Number(db.prepare(`
@@ -4141,6 +4152,39 @@ test('GET /api/chats/messages/:id/file сохраняет файл, доступ
   const invalid = await getJson('/api/chats/messages/nope/file?telegram_id=3001')
   assert.equal(invalid.response.status, 400)
   assert.deepEqual(invalid.body, { ok: false, error: 'Некорректные параметры запроса.' })
+})
+
+test('legacy POST /api/chats/messages сохраняет запись и текущую SEC-002 уязвимость', async () => {
+  const result = await postMultipart('/api/chats/messages', {
+    telegram_id: 2001,
+    student_id: fixtureIds.studentTwoId,
+    text_content: '  Legacy сообщение неназначенного преподавателя  ',
+  }, 2001)
+
+  assert.equal(result.response.status, 200)
+  assert.equal(result.body.data.message.student_id, fixtureIds.studentTwoId)
+  assert.equal(result.body.data.message.text_content, 'Legacy сообщение неназначенного преподавателя')
+  assert.equal(result.body.data.message.content_type, 'text')
+  assert.equal(result.body.data.message.sender_role_key, 'teacher')
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const notification = db.prepare(`
+    SELECT n.kind, n.body, n.payload
+    FROM app_notifications n
+    JOIN users u ON u.id = n.user_id
+    WHERE u.telegram_id = 3002
+    ORDER BY n.id DESC
+    LIMIT 1
+  `).get()
+  db.close()
+  assert.deepEqual(notification, {
+    kind: 'chat_message',
+    body: 'Новое сообщение в вашем чате от преподавателя.',
+    payload: JSON.stringify({
+      student_id: fixtureIds.studentTwoId,
+      message_id: result.body.data.message.id,
+    }),
+  })
 })
 
 test('legacy BUG-001: фильтр completed сейчас возвращает и studying-учеников', async () => {

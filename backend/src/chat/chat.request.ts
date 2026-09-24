@@ -1,5 +1,6 @@
 import type { AuthenticationRequest } from '../auth/auth.types.js'
 import { invalidParameters } from '../common/invalid-parameters.error.js'
+import type { StagedChatAttachment } from './chat-attachment.storage.js'
 
 export type ChatMessagesQuery = {
   studentId: number
@@ -10,6 +11,13 @@ export type ChatRequest = AuthenticationRequest & {
   params?: unknown
   chatMessagesQuery?: ChatMessagesQuery
   chatMessageId?: number
+  chatMessageCommand?: ChatMessageCommand
+}
+
+export type ChatMessageCommand = {
+  studentId: number
+  textContent: string
+  attachment: StagedChatAttachment | null
 }
 
 const recordFrom = (value: unknown): Record<string, unknown> => {
@@ -44,3 +52,6 @@ export const chatMessagesQueryFrom = (request: ChatRequest): ChatMessagesQuery =
 
 export const chatMessageIdFrom = (request: ChatRequest): number =>
   request.chatMessageId ?? invalidParameters()
+
+export const chatMessageCommandFrom = (request: ChatRequest): ChatMessageCommand =>
+  request.chatMessageCommand ?? invalidParameters()

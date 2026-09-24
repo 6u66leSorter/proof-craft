@@ -5,6 +5,8 @@ import {
   type ChatMessageRecord,
   type ChatStudent,
   type ChatStudentAccess,
+  type ChatMessageTarget,
+  type CreateChatMessageCommand,
 } from './chat.repository.js'
 
 type PrismaMessage = Awaited<ReturnType<PrismaChatRepository['loadMessage']>>
@@ -76,6 +78,71 @@ export class PrismaChatRepository implements ChatRepository {
   async findMessage(messageId: number): Promise<ChatMessageRecord | null> {
     const message = await this.loadMessage(messageId)
     return message ? this.mapMessage(message) : null
+  }
+
+  async findMessageTarget(
+    studentId: number,
+    senderUserId: number,
+  ): Promise<ChatMessageTarget | null> {
+    const [student, senderStudent] = await Promise.all([
+      this.prisma.students.findUnique({
+        where: { id: studentId },
+        select: {
+          id: true,
+          user_id: true,
+          full_name: true,
+          student_teachers: {
+            select: { teachers: { select: { user_id: true } } },
+          },
+        },
+      }),
+      this.prisma.students.findUnique({
+        where: { user_id: senderUserId },
+        select: { id: true },
+      }),
+    ])
+    if (!student) return null
+    const assignedTeacherUserIds = student.student_teachers.map(
+      ({ teachers }) => teachers.user_id,
+    )
+    return {
+      studentId: student.id,
+      studentUserId: student.user_id,
+      studentFullName: student.full_name,
+      senderStudentId: senderStudent?.id ?? null,
+      ownerUserId: student.user_id,
+      isAssignedTeacher: assignedTeacherUserIds.includes(senderUserId),
+      assignedTeacherUserIds,
+    }
+  }
+
+  async createMessage(command: CreateChatMessageCommand): Promise<ChatMessageRecord> {
+    return await this.prisma.$transaction(async (transaction) => {
+      const message = await transaction.chat_messages.create({
+        data: {
+          student_id: command.studentId,
+          sender_user_id: command.senderUserId,
+          text_content: command.textContent,
+          content_type: command.contentType,
+          file_id: command.fileId,
+        },
+        select: this.messageSelect(),
+      })
+      for (const notification of command.notifications) {
+        await transaction.app_notifications.create({
+          data: {
+            user_id: notification.userId,
+            kind: 'chat_message',
+            body: notification.body,
+            payload: JSON.stringify({
+              student_id: command.studentId,
+              message_id: message.id,
+            }),
+          },
+        })
+      }
+      return this.mapMessage(message)
+    })
   }
 
   private async loadMessage(messageId: number) {

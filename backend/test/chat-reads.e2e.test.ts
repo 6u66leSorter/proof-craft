@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import test, { after, before } from 'node:test'
 import Database from 'better-sqlite3'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
+import multipart from '@fastify/multipart'
 import { Test } from '@nestjs/testing'
 import { AppModule } from '../src/app.module.js'
 import { createLegacyDatabase } from './support/legacy-database.js'
+import { getMultipartOptions } from '../src/common/multipart-options.js'
 
 const botToken = '123456:nest-chat-read-token'
 const vkSecret = 'nest-chat-read-vk-secret'
@@ -34,6 +36,7 @@ type FixtureIds = {
 }
 
 let temporaryRoot: string
+let databasePath: string
 let app: NestFastifyApplication
 let fixtureIds: FixtureIds
 
@@ -74,6 +77,30 @@ const buildVkLaunchParams = (vkUserId: number): string => {
 const authHeaders = (telegramId: number): Record<string, string> => ({
   'x-telegram-init-data': buildTelegramInitData(telegramId),
 })
+
+const multipartMessage = (
+  fields: Record<string, string | number>,
+  file?: { content: string; filename: string; contentType: string },
+): { headers: Record<string, string>; payload: Buffer } => {
+  const boundary = `proof-craft-${crypto.randomUUID()}`
+  const chunks: Buffer[] = []
+  for (const [name, value] of Object.entries(fields)) {
+    chunks.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+    ))
+  }
+  if (file) {
+    chunks.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${file.filename}"\r\n` +
+      `Content-Type: ${file.contentType}\r\n\r\n${file.content}\r\n`,
+    ))
+  }
+  chunks.push(Buffer.from(`--${boundary}--\r\n`))
+  return {
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.concat(chunks),
+  }
+}
 
 const seedChatReads = (databasePath: string): FixtureIds => {
   const db = new Database(databasePath)
@@ -238,6 +265,7 @@ const seedChatReads = (databasePath: string): FixtureIds => {
 before(async () => {
   const fixture = await createLegacyDatabase('proof-craft-chat-reads-')
   temporaryRoot = fixture.temporaryRoot
+  databasePath = fixture.databasePath
   fixtureIds = seedChatReads(fixture.databasePath)
   process.env.DATABASE_URL = `file:${fixture.databasePath}`
   process.env.BOT_TOKEN = botToken
@@ -248,9 +276,11 @@ before(async () => {
   process.env.VK_APP_SECRET = vkSecret
   process.env.VK_ID_OFFSET = '10000000000'
   process.env.CHAT_ENABLED = 'true'
+  process.env.MAX_HOMEWORK_UPLOAD_MB = '0.001'
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
   app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+  await app.register(multipart, getMultipartOptions())
   await app.init()
   await app.getHttpAdapter().getInstance().ready()
 })
@@ -573,5 +603,146 @@ test('chat reads сохраняют validation, auth, not-found и disabled ош
     } finally {
       process.env.CHAT_ENABLED = 'true'
     }
+  })
+})
+
+test('POST chats/messages атомарно создаёт текст и уведомление преподавателю', async () => {
+  const body = multipartMessage({
+    telegram_id: studentTelegramId,
+    student_id: fixtureIds.studentId,
+    text_content: '  Новое сообщение ученика  ',
+  })
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/chats/messages',
+    headers: { ...body.headers, ...authHeaders(studentTelegramId) },
+    payload: body.payload,
+  })
+  assert.equal(response.statusCode, 200)
+  const message = response.json().data.message
+  assert.equal(message.student_id, fixtureIds.studentId)
+  assert.equal(message.text_content, 'Новое сообщение ученика')
+  assert.equal(message.content_type, 'text')
+  assert.equal(message.sender_role_key, 'student')
+  assert.equal(message.has_file, false)
+
+  const db = new Database(databasePath, { readonly: true })
+  const notification = db.prepare(`
+    SELECT n.kind, n.body, n.payload
+    FROM app_notifications n
+    JOIN users u ON u.id = n.user_id
+    WHERE u.telegram_id = ?
+    ORDER BY n.id DESC LIMIT 1
+  `).get(teacherTelegramId)
+  db.close()
+  assert.deepEqual(notification, {
+    kind: 'chat_message',
+    body: 'В чате ученика Анна Ученица новое сообщение.',
+    payload: JSON.stringify({ student_id: fixtureIds.studentId, message_id: message.id }),
+  })
+})
+
+test('POST chats/messages сохраняет нормализованное вложение и уведомляет ученика', async () => {
+  const image = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="red"/></svg>'
+  const body = multipartMessage(
+    {
+      telegram_id: teacherTelegramId,
+      student_id: fixtureIds.studentId,
+      text_content: 'Фото преподавателя',
+    },
+    { content: image, filename: '../../unsafe.svg', contentType: 'image/svg+xml' },
+  )
+  const response = await app.inject({
+    method: 'POST',
+    url: '/chats/messages',
+    headers: { ...body.headers, ...authHeaders(teacherTelegramId) },
+    payload: body.payload,
+  })
+  assert.equal(response.statusCode, 200)
+  const message = response.json().data.message
+  assert.equal(message.content_type, 'photo')
+  assert.equal(message.has_file, true)
+
+  const db = new Database(databasePath, { readonly: true })
+  const stored = db.prepare('SELECT file_id FROM chat_messages WHERE id = ?').get(message.id) as {
+    file_id: string
+  }
+  const notification = db.prepare(`
+    SELECT n.body, n.payload
+    FROM app_notifications n
+    JOIN users u ON u.id = n.user_id
+    WHERE u.telegram_id = ?
+    ORDER BY n.id DESC LIMIT 1
+  `).get(studentTelegramId)
+  db.close()
+  assert.equal(existsSync(stored.file_id), true)
+  assert.equal(stored.file_id.endsWith('.jpg'), true)
+  assert.deepEqual(notification, {
+    body: 'Новое сообщение в вашем чате от преподавателя.',
+    payload: JSON.stringify({ student_id: fixtureIds.studentId, message_id: message.id }),
+  })
+})
+
+test('POST chats/messages исправляет SEC-002 и очищает файл при отказе', async () => {
+  const uploads = join(dirname(databasePath), 'uploads')
+  const beforeFiles = readdirSync(uploads).sort()
+  const body = multipartMessage(
+    {
+      telegram_id: unassignedTeacherTelegramId,
+      student_id: fixtureIds.studentId,
+      text_content: 'Запрещённое сообщение',
+    },
+    { content: 'attachment', filename: 'denied.txt', contentType: 'text/plain' },
+  )
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/chats/messages',
+    headers: { ...body.headers, ...authHeaders(unassignedTeacherTelegramId) },
+    payload: body.payload,
+  })
+  assert.equal(response.statusCode, 403)
+  assert.deepEqual(response.json(), {
+    ok: false,
+    error: 'Нет доступа к чату этого ученика.',
+  })
+  assert.deepEqual(readdirSync(uploads).sort(), beforeFiles)
+})
+
+test('POST chats/messages сохраняет validation и очищает oversized upload', async (context) => {
+  await context.test('пустое сообщение', async () => {
+    const body = multipartMessage({
+      telegram_id: studentTelegramId,
+      student_id: fixtureIds.studentId,
+      text_content: '   ',
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/chats/messages',
+      headers: { ...body.headers, ...authHeaders(studentTelegramId) },
+      payload: body.payload,
+    })
+    assert.equal(response.statusCode, 400)
+    assert.deepEqual(response.json(), { ok: false, error: 'Добавьте текст или вложение.' })
+  })
+
+  await context.test('слишком большой файл', async () => {
+    const uploads = join(dirname(databasePath), 'uploads')
+    const beforeFiles = readdirSync(uploads).sort()
+    const body = multipartMessage(
+      { telegram_id: studentTelegramId, student_id: fixtureIds.studentId },
+      { content: 'x'.repeat(2_048), filename: 'large.txt', contentType: 'text/plain' },
+    )
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/chats/messages',
+      headers: { ...body.headers, ...authHeaders(studentTelegramId) },
+      payload: body.payload,
+    })
+    assert.equal(response.statusCode, 413)
+    assert.deepEqual(response.json(), {
+      ok: false,
+      error: 'Файл слишком большой. Максимум 0 МБ.',
+    })
+    assert.deepEqual(readdirSync(uploads).sort(), beforeFiles)
   })
 })

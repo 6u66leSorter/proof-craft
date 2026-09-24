@@ -1,7 +1,10 @@
 import {
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Inject,
+  Post,
   Req,
   Res,
   StreamableFile,
@@ -14,10 +17,12 @@ import type { AuthenticatedPrincipal } from '../auth/auth.types.js'
 import {
   ChatAvailabilityGuard,
   ChatMessageFileGuard,
+  ChatMessageMultipartGuard,
   ChatMessagesQueryGuard,
 } from './chat.guards.js'
 import {
   chatMessageIdFrom,
+  chatMessageCommandFrom,
   chatMessagesQueryFrom,
   type ChatRequest,
 } from './chat.request.js'
@@ -29,6 +34,8 @@ import {
   GetChatMessageFileUseCase,
   type ChatMessageFileResponse,
 } from './get-chat-message-file.use-case.js'
+import { ChatAttachmentStorage } from './chat-attachment.storage.js'
+import { SendChatMessageUseCase } from './send-chat-message.use-case.js'
 
 @Controller(['api/chats', 'chats'])
 @UseGuards(ChatAvailabilityGuard)
@@ -40,7 +47,26 @@ export class ChatController {
     private readonly listMessages: ListChatMessagesUseCase,
     @Inject(GetChatMessageFileUseCase)
     private readonly getMessageFile: GetChatMessageFileUseCase,
+    @Inject(SendChatMessageUseCase)
+    private readonly sendMessage: SendChatMessageUseCase,
+    @Inject(ChatAttachmentStorage)
+    private readonly attachmentStorage: ChatAttachmentStorage,
   ) {}
+
+  @Post('messages')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ChatMessageMultipartGuard)
+  async send(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Req() request: ChatRequest,
+  ): Promise<object> {
+    const command = chatMessageCommandFrom(request)
+    try {
+      return await this.sendMessage.execute(principal, command)
+    } finally {
+      await this.attachmentStorage.discard(command.attachment?.path ?? null)
+    }
+  }
 
   @Get('students')
   @UseGuards(AuthenticationGuard)

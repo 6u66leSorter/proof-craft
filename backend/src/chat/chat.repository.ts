@@ -9,6 +9,23 @@ export type ChatStudentAccess = {
   isAssignedTeacher: boolean
 }
 
+export type ChatMessageTarget = ChatStudentAccess & {
+  studentId: number
+  studentUserId: number
+  studentFullName: string
+  senderStudentId: number | null
+  assignedTeacherUserIds: number[]
+}
+
+export type CreateChatMessageCommand = {
+  studentId: number
+  senderUserId: number
+  textContent: string | null
+  contentType: string
+  fileId: string | null
+  notifications: Array<{ userId: number; body: string }>
+}
+
 export type ChatMessageRecord = {
   id: number
   studentId: number
@@ -35,4 +52,9 @@ export abstract class ChatRepository {
   ): Promise<ChatStudentAccess | null>
   abstract listMessages(studentId: number, limit: number): Promise<ChatMessageRecord[]>
   abstract findMessage(messageId: number): Promise<ChatMessageRecord | null>
+  abstract findMessageTarget(
+    studentId: number,
+    senderUserId: number,
+  ): Promise<ChatMessageTarget | null>
+  abstract createMessage(command: CreateChatMessageCommand): Promise<ChatMessageRecord>
 }
