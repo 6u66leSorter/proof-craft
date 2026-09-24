@@ -80,7 +80,8 @@ export default defineConfig<VisualOptions>({
       command: 'node visual/legacy-api/start.mjs',
       cwd: '..',
       url: `http://127.0.0.1:${apiPort}/health`,
-      env: { VISUAL_API_PORT: String(apiPort) },
+      // VISUAL_BACKEND=split: перенесённые маршруты обслуживает NestJS, остальные — legacy.
+      env: { VISUAL_API_PORT: String(apiPort), VISUAL_BACKEND: process.env.VISUAL_BACKEND || 'legacy' },
       reuseExistingServer: false,
       timeout: 60_000,
     },
