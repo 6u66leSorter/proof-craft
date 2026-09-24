@@ -92,7 +92,7 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/api/students` | подтверждённая платформенная личность | Регистрация ученика и уведомление администраторов | high | legacy |
+| POST | `/api/students` | подтверждённая Telegram/VK identity или web-session | Атомарное создание/обновление identity, роли и student-профиля в moderation; уведомления администраторам | high | nest-ready |
 | POST | `/api/teacher-application` | подтверждённая Telegram/VK identity или web-session | Нормализация контактов, создание guest identity, атомарная замена pending-заявки и уведомление администраторов | high | nest-ready |
 | GET | `/api/admin/teacher-applications` | Telegram, VK или web-session; роль admin | Необработанные заявки от новых к старым | medium | nest-ready |
 | POST | `/api/admin/teacher-applications` | Telegram, VK или web-session; роль admin | Атомарное принятие/отклонение, роль и профиль преподавателя, аудит и уведомление при approve; сохранённая деактивированная карточка реактивируется по `SEC-003` | high | nest-ready |
@@ -101,7 +101,7 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/api/student/feedback` | ученик | Идемпотентная отправка по `request_key` | high | legacy |
+| POST | `/api/student/feedback` | Telegram, VK или web-session с существующим student | Приватная идемпотентная отправка по паре student + `request_key` | high | nest-ready |
 | GET | `/api/admin/feedback` | Telegram, VK или web-session; роль admin | Cursor-пагинация приватных отзывов по 50 записей | high | nest-ready |
 
 ## Администрирование профилей

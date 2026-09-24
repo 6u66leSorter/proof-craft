@@ -1960,6 +1960,217 @@ test('POST /api/teacher-application сохраняет validation и auth оши
   })
 })
 
+test('POST /api/students создаёт заявку, роль и уведомление администратора', async () => {
+  const telegramId = 9510
+  const result = await postJson('/api/students', {
+    telegram_id: telegramId,
+    full_name: '  Анна   Новая  ',
+    phone: ' +7 999 100 20 30 ',
+    lessons_count: '12,0',
+    username: 'anna_new',
+    first_name: 'Не используется',
+    last_name: 'Тоже не используется',
+    metro: '  Тверская  ',
+  }, telegramId)
+
+  assert.equal(result.response.status, 201)
+  const studentId = result.body.data.student.id
+  assert.deepEqual(result.body, {
+    ok: true,
+    data: {
+      student: {
+        id: studentId,
+        full_name: 'Анна   Новая',
+        phone: '+79991002030',
+        lessons_count: 12,
+        status: 'moderation',
+      },
+      role: 'student',
+      roles: ['guest', 'student'],
+    },
+  })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const user = db.prepare(`
+    SELECT id, username, first_name, last_name, role
+    FROM users WHERE telegram_id = ?
+  `).get(telegramId)
+  assert.deepEqual(user, {
+    id: user.id,
+    username: 'anna_new',
+    first_name: 'Анна',
+    last_name: 'Новая',
+    role: 'guest',
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ? ORDER BY role
+  `).all(user.id), [{ role: 'guest' }, { role: 'student' }])
+  assert.deepEqual(db.prepare(`
+    SELECT id, user_id, full_name, phone, lessons_count, status, metro
+    FROM students WHERE user_id = ?
+  `).get(user.id), {
+    id: studentId,
+    user_id: user.id,
+    full_name: 'Анна   Новая',
+    phone: '+79991002030',
+    lessons_count: 12,
+    status: 'moderation',
+    metro: 'Тверская',
+  })
+  const adminMessage = `Новый ученик из мини-аппа:\nАнна   Новая\nТелефон: +79991002030\nМетро: Тверская\nЗанятий: 12\n\nID в Telegram: ${telegramId}`
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT id FROM users WHERE telegram_id = 1001)
+      AND kind = 'new_student'
+    ORDER BY id DESC LIMIT 1
+  `).get(), {
+    kind: 'new_student',
+    body: adminMessage,
+    payload: JSON.stringify({
+      source: 'mini_app',
+      telegram_id: telegramId,
+      full_name: 'Анна   Новая',
+    }),
+  })
+  db.close()
+
+  const duplicate = await postJson('/api/students', {
+    telegram_id: telegramId,
+    full_name: 'Анна Новая',
+    phone: '+79991002030',
+    lessons_count: 12,
+  }, telegramId)
+  assert.equal(duplicate.response.status, 409)
+  assert.deepEqual(duplicate.body, {
+    ok: false,
+    error: 'Заявка уже существует.',
+    data: {
+      student: {
+        id: studentId,
+        user_id: user.id,
+        full_name: 'Анна   Новая',
+        phone: '+79991002030',
+        lessons_count: 12,
+        status: 'moderation',
+        created_at: duplicate.body.data.student.created_at,
+        updated_at: duplicate.body.data.student.updated_at,
+        student_track: 'student',
+        metro: 'Тверская',
+        avatar_file_id: null,
+        about_me: null,
+        telegram_id: telegramId,
+        username: 'anna_new',
+        first_name: 'Анна',
+        last_name: 'Новая',
+      },
+    },
+  })
+})
+
+test('POST /api/students сохраняет порядок schema, auth и domain validation', async (context) => {
+  const valid = {
+    telegram_id: 9511,
+    full_name: 'Новый Ученик',
+    phone: '+79991002031',
+    lessons_count: 10,
+  }
+  await context.test('schema проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, full_name: null },
+      { ...valid, lessons_count: null },
+      { ...valid, phone: 79991002031 },
+    ]) {
+      const result = await postJson('/api/students', payload)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  assert.equal((await postJson('/api/students', valid)).response.status, 401)
+  assert.equal((await postJson('/api/students', valid, 9512)).response.status, 403)
+
+  for (const [patch, error] of [
+    [{ full_name: '   ', phone: 'invalid', lessons_count: 0 }, 'Укажите ФИО ученика.'],
+    [{ phone: 'invalid', lessons_count: 0 }, 'Укажите корректный номер телефона.'],
+    [{ lessons_count: '2.5' }, 'Количество занятий должно быть целым числом больше нуля.'],
+  ]) {
+    const result = await postJson('/api/students', { ...valid, ...patch }, valid.telegram_id)
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, { ok: false, error })
+  }
+})
+
+test('POST /api/student/feedback сохраняет приватный отзыв идемпотентно', async () => {
+  const requestKey = '11111111-1111-4111-8111-111111111111'
+  const payload = {
+    telegram_id: 3001,
+    subject: 'academy',
+    message: '  Полезный отзыв  ',
+    request_key: requestKey,
+  }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await postJson('/api/student/feedback', payload, 3001)
+    assert.equal(result.response.status, 200)
+    assert.deepEqual(result.body, { ok: true })
+  }
+
+  const db = new Database(legacyDatabasePath)
+  assert.deepEqual(db.prepare(`
+    SELECT student_id, request_key, subject, message
+    FROM private_feedback WHERE student_id = ? AND request_key = ?
+  `).get(fixtureIds.studentOneId, requestKey), {
+    student_id: fixtureIds.studentOneId,
+    request_key: requestKey,
+    subject: 'academy',
+    message: 'Полезный отзыв',
+  })
+  const count = db.prepare(`
+    SELECT COUNT(*) AS count FROM private_feedback
+    WHERE student_id = ? AND request_key = ?
+  `).get(fixtureIds.studentOneId, requestKey)
+  assert.equal(count.count, 1)
+  db.prepare(`
+    DELETE FROM private_feedback WHERE student_id = ? AND request_key = ?
+  `).run(fixtureIds.studentOneId, requestKey)
+  db.close()
+})
+
+test('POST /api/student/feedback сохраняет validation, auth и student-доступ', async () => {
+  const valid = {
+    telegram_id: 3001,
+    subject: 'teacher',
+    message: 'Отзыв',
+    request_key: '22222222-2222-4222-8222-222222222222',
+  }
+  for (const payload of [
+    { ...valid, subject: 'unknown' },
+    { ...valid, message: '   ' },
+    { ...valid, message: 'x'.repeat(4001) },
+    { ...valid, request_key: 'not-a-uuid' },
+  ]) {
+    const result = await postJson('/api/student/feedback', payload)
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Некорректные параметры запроса.',
+    })
+  }
+  assert.equal((await postJson('/api/student/feedback', valid)).response.status, 401)
+  assert.equal((await postJson('/api/student/feedback', valid, 3002)).response.status, 403)
+
+  const forbidden = await postJson('/api/student/feedback', {
+    ...valid,
+    telegram_id: 2001,
+  }, 2001)
+  assert.equal(forbidden.response.status, 403)
+  assert.deepEqual(forbidden.body, {
+    ok: false,
+    error: 'Обратная связь доступна только ученику.',
+  })
+})
+
 test('GET /api/admin/teacher-applications возвращает только pending-заявки', async () => {
   const { response, body } = await getJson('/api/admin/teacher-applications?telegram_id=1001', 1001)
   assert.equal(response.status, 200)
