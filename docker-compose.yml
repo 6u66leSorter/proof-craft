@@ -1,37 +1,21 @@
 # Новый стек: NestJS API, бот и React-клиент.
 # Запуск одной командой: docker compose up --build  (сайт — http://localhost:${WEB_PORT:-8080}).
-# Переменные — в .env (шаблон .env.example); без него всё, кроме бота, работает на значениях по умолчанию.
+# Переменные — в .env (шаблон .env.example) или в окружении платформы (Timeweb и т.п.):
+# compose подставляет их в x-app-env; без них всё, кроме бота, работает на значениях по умолчанию.
+x-app-env: &app-env
+  BOT_TOKEN: ${BOT_TOKEN:-}
+  TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+  WEB_APP_URL: ${WEB_APP_URL:-}
+  TG_WEBAPP_AUTH: ${TG_WEBAPP_AUTH:-strict}
+  VK_APP_ID: ${VK_APP_ID:-54558405}
+  VK_APP_SECRET: ${VK_APP_SECRET:-}
+  VK_ID_OFFSET: ${VK_ID_OFFSET:-10000000000}
+  MAX_HOMEWORK_UPLOAD_MB: ${MAX_HOMEWORK_UPLOAD_MB:-450}
+  CHAT_ENABLED: ${CHAT_ENABLED:-true}
+  APP_NOTIFICATIONS_RETENTION_DAYS: ${APP_NOTIFICATIONS_RETENTION_DAYS:-90}
+
 services:
-  api:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    image: proof-craft-backend
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      INIT_SCHEMA: "1"
-    volumes:
-      - barber-data:/app/data
-    restart: unless-stopped
-
-  bot:
-    image: proof-craft-backend
-    command: ["node", "dist/bot-main.js"]
-    env_file:
-      - path: .env
-        required: false
-    volumes:
-      - barber-data:/app/data
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      disable: true
-    # Без BOT_TOKEN бот завершается с кодом 0 и не перезапускается.
-    restart: on-failure
-
+  # web — первым: Timeweb App Platform проксирует домен только на первый сервис compose.
   web:
     build:
       context: .
@@ -42,6 +26,32 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: proof-craft-backend
+    environment:
+      <<: *app-env
+      INIT_SCHEMA: "1"
+    volumes:
+      - barber-data:/app/data
+    restart: unless-stopped
+
+  bot:
+    image: proof-craft-backend
+    command: ["node", "dist/bot-main.js"]
+    environment: *app-env
+    volumes:
+      - barber-data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    # Без BOT_TOKEN бот завершается с кодом 0 и не перезапускается.
+    restart: on-failure
 
 volumes:
   # SQLite и загруженные файлы (uploads) — общие для api и bot.
