@@ -93,7 +93,7 @@
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
 | POST | `/api/students` | подтверждённая платформенная личность | Регистрация ученика и уведомление администраторов | high | legacy |
-| POST | `/api/teacher-application` | подтверждённая платформенная личность | Заявка преподавателя | high | legacy |
+| POST | `/api/teacher-application` | подтверждённая Telegram/VK identity или web-session | Нормализация контактов, создание guest identity, атомарная замена pending-заявки и уведомление администраторов | high | nest-ready |
 | GET | `/api/admin/teacher-applications` | Telegram, VK или web-session; роль admin | Необработанные заявки от новых к старым | medium | nest-ready |
 | POST | `/api/admin/teacher-applications` | Telegram, VK или web-session; роль admin | Атомарное принятие/отклонение, роль и профиль преподавателя, аудит и уведомление при approve; сохранённая деактивированная карточка реактивируется по `SEC-003` | high | nest-ready |
 

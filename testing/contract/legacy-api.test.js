@@ -506,6 +506,19 @@ const removeTeacherApplicationFixture = ({ userId, applicationId }) => {
   db.close()
 }
 
+const removeTeacherApplicationSubmission = (telegramId) => {
+  const db = new Database(legacyDatabasePath)
+  const user = db.prepare('SELECT id FROM users WHERE telegram_id = ?').get(telegramId)
+  if (user) {
+    db.prepare(`
+      DELETE FROM app_notifications
+      WHERE kind = 'teacher_application' AND payload LIKE ?
+    `).run(`%\"applicant_user_id\":${user.id}%`)
+    db.prepare('DELETE FROM users WHERE id = ?').run(user.id)
+  }
+  db.close()
+}
+
 let fixtureIds
 
 before(async () => {
@@ -1776,6 +1789,175 @@ test('POST /api/teacher/about сохраняет validation, auth и role оши
       })
     })
   }
+})
+
+test('POST /api/teacher-application создаёт пользователя, заменяет pending-заявку и уведомляет админа', async () => {
+  const telegramId = 9501
+  const first = await postJson('/api/teacher-application', {
+    telegram_id: telegramId,
+    full_name: '  Павел   Первый  ',
+    phone: ' +7 999 000 00 01 ',
+  }, telegramId)
+  assert.equal(first.response.status, 200)
+  assert.deepEqual(first.body, { ok: true })
+
+  let db = new Database(legacyDatabasePath, { readonly: true })
+  const user = db.prepare(`
+    SELECT id, telegram_id, first_name, last_name, role, vk_user_id
+    FROM users WHERE telegram_id = ?
+  `).get(telegramId)
+  assert.deepEqual(user, {
+    id: user.id,
+    telegram_id: telegramId,
+    first_name: 'Павел',
+    last_name: 'Первый',
+    role: 'guest',
+    vk_user_id: null,
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ?
+  `).all(user.id), [{ role: 'guest' }])
+  const firstApplication = db.prepare(`
+    SELECT id, full_name, phone, status
+    FROM teacher_applications WHERE applicant_user_id = ?
+  `).get(user.id)
+  assert.deepEqual(firstApplication, {
+    id: firstApplication.id,
+    full_name: 'Павел   Первый',
+    phone: '+79990000001',
+    status: 'pending',
+  })
+  db.close()
+
+  const second = await postJson('/api/teacher-application', {
+    telegram_id: telegramId,
+    full_name: 'Пётр Второй',
+    phone: '89990000002',
+  }, telegramId)
+  assert.equal(second.response.status, 200)
+  assert.deepEqual(second.body, { ok: true })
+
+  db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT first_name, last_name FROM users WHERE id = ?
+  `).get(user.id), { first_name: 'Пётр', last_name: 'Второй' })
+  const applications = db.prepare(`
+    SELECT id, full_name, phone, status
+    FROM teacher_applications WHERE applicant_user_id = ?
+  `).all(user.id)
+  assert.equal(applications.length, 1)
+  assert.notEqual(applications[0].id, firstApplication.id)
+  assert.deepEqual(applications[0], {
+    id: applications[0].id,
+    full_name: 'Пётр Второй',
+    phone: '89990000002',
+    status: 'pending',
+  })
+  const message = `Заявка на роль преподавателя (мини-апп):\nПётр Второй\nТелефон: 89990000002\nID в приложении: ${telegramId}`
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT id FROM users WHERE telegram_id = 1001)
+      AND kind = 'teacher_application'
+    ORDER BY id DESC LIMIT 1
+  `).get(), {
+    kind: 'teacher_application',
+    body: message,
+    payload: JSON.stringify({
+      source: 'mini_app',
+      telegram_id: telegramId,
+      full_name: 'Пётр Второй',
+      applicant_user_id: user.id,
+    }),
+  })
+  db.close()
+  removeTeacherApplicationSubmission(telegramId)
+})
+
+test('POST /api/teacher-application создаёт VK identity с реальным vk_user_id', async () => {
+  const vkUserId = 9502
+  const claimedTelegramId = 10_000_000_000 + vkUserId
+  const response = await fetch(`${baseUrl}/api/teacher-application`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Client-Platform': 'vk',
+      'X-VK-User-Id': String(vkUserId),
+      'X-App-User-Id': String(claimedTelegramId),
+      'X-VK-Launch-Params': buildVkLaunchParams(vkUserId),
+    },
+    body: JSON.stringify({
+      telegram_id: claimedTelegramId,
+      full_name: 'Виктор Кандидат',
+      phone: '+79990000003',
+    }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT telegram_id, vk_user_id, first_name, last_name
+    FROM users WHERE telegram_id = ?
+  `).get(claimedTelegramId), {
+    telegram_id: claimedTelegramId,
+    vk_user_id: vkUserId,
+    first_name: 'Виктор',
+    last_name: 'Кандидат',
+  })
+  db.close()
+  removeTeacherApplicationSubmission(claimedTelegramId)
+})
+
+test('POST /api/teacher-application сохраняет validation и auth ошибки', async (context) => {
+  const valid = {
+    telegram_id: 9503,
+    full_name: 'Новый Кандидат',
+    phone: '+79990000004',
+  }
+  await context.test('schema проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, full_name: 'Я' },
+      { ...valid, phone: '1234' },
+      { ...valid, full_name: null },
+    ]) {
+      const result = await postJson('/api/teacher-application', payload)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  await context.test('domain validation выполняется после credential', async () => {
+    const invalidPhone = await postJson('/api/teacher-application', {
+      ...valid,
+      phone: 'номер телефона',
+    }, valid.telegram_id)
+    assert.equal(invalidPhone.response.status, 400)
+    assert.deepEqual(invalidPhone.body, {
+      ok: false,
+      error: 'Укажите корректный номер телефона.',
+    })
+
+    const emptyName = await postJson('/api/teacher-application', {
+      ...valid,
+      full_name: '  ',
+    }, valid.telegram_id)
+    assert.equal(emptyName.response.status, 400)
+    assert.deepEqual(emptyName.body, { ok: false, error: 'Укажите ФИО.' })
+  })
+  await context.test('нет credential', async () => {
+    assert.equal(
+      (await postJson('/api/teacher-application', valid)).response.status,
+      401,
+    )
+  })
+  await context.test('credential не совпадает', async () => {
+    assert.equal(
+      (await postJson('/api/teacher-application', valid, 9504)).response.status,
+      403,
+    )
+  })
 })
 
 test('GET /api/admin/teacher-applications возвращает только pending-заявки', async () => {

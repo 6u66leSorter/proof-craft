@@ -16,6 +16,14 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-24 — Подача заявки преподавателя
+
+- **Цель:** перенести `POST /api/teacher-application` как первую половину регистрационного блока.
+- **Сделано:** добавлен `RegistrationModule` с validation guard, use case и Prisma repository. Сохранены нормализация телефона, trim ФИО, разбор имени пользователя, guest identity для нового заявителя и полная замена прежней pending-заявки. Identity, заявка и app-уведомления всем администраторам записываются атомарно; Telegram отправляется после коммита.
+- **Проверка:** legacy — 241 успешный тест и 7 целевых TODO; NestJS — 266 успешных тестов. Characterization и e2e покрывают повторную подачу, Telegram, VK с реальным `vk_user_id`, web-session, nginx-путь, точные side effects и порядок ошибок validation/auth. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 41 из 58 маршрутов, 16 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/students` в тот же `RegistrationModule`.
+
 ### 2026-09-24 — Обработка заявок преподавателей
 
 - **Цель:** перенести `POST /api/admin/teacher-applications`, сохранив внешний контракт approve/reject и согласовав его с исправлением `SEC-003`.
