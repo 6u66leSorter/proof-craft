@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures'
 import type { Page } from '@playwright/test'
+import { photoFiles } from '../photos'
 
 const tab = (page: Page, name: string) => page.locator('.tb', { hasText: name }).click()
 const openWork = async (page: Page, title: string) => {
@@ -50,6 +51,24 @@ test.describe('ученик', () => {
     await page.getByRole('button', { name: /ДЗ/ }).first().click()
     await expect(page.locator('.hdr h2')).toHaveText('Новое задание')
     await snap('student-homework-new')
+  })
+
+  test('новое задание с фото и ошибкой отправки', async ({ snap, page }) => {
+    await page.route('**/api/homeworks', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 500, json: { ok: false, error: 'Сервер временно недоступен' } })
+        : route.fallback(),
+    )
+    await page.getByRole('button', { name: /ДЗ/ }).first().click()
+    await page.locator('input[type=file]').setInputFiles(photoFiles(2))
+    await expect(page.locator('#hw-photos-grid img')).toHaveCount(2)
+    await page.getByRole('textbox', { name: 'Номер задания (урока)' }).fill('5')
+    await page.getByRole('textbox', { name: 'Название стрижки' }).fill('Кроп')
+    await page.getByRole('textbox', { name: 'Подробное описание...' }).fill('Текстура на макушке')
+    await snap('student-homework-new-filled')
+    await page.getByRole('button', { name: 'Отправить на проверку' }).click()
+    await expect(page.getByText('Не получилось')).toBeVisible()
+    await snap('student-homework-new-error')
   })
 
   test('заявка на изменение профиля', async ({ snap, page }) => {

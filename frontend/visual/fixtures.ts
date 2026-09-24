@@ -3,8 +3,11 @@ import { createRequire } from 'node:module'
 import { test as base, expect, type Page } from '@playwright/test'
 import { VISUAL_SESSIONS } from './legacy-api/sessions.mjs'
 import { PORTED_SCENARIOS } from './ported'
+import { VISUAL_DEVIATIONS } from './deviations'
 
 export type Theme = 'light' | 'dark'
+/** Какой клиент проверяется: для исправленных в новом клиенте дефектов legacy ожидания различаются. */
+export const TARGET: 'legacy' | 'next' = process.env.VISUAL_TARGET === 'next' ? 'next' : 'legacy'
 export type Role = keyof typeof VISUAL_SESSIONS
 export type VisualOptions = { theme: Theme }
 
@@ -128,7 +131,9 @@ export const test = base.extend<VisualFixtures & VisualOptions>({
       // Указатель остаётся там, где был последний клик, и даёт :hover на случайных элементах.
       await page.mouse.move(0, 0)
       await settlePage(page, options)
-      await expect(page).toHaveScreenshot(`${name}.png`)
+      const snapshot = (suffix = '') =>
+        TARGET === 'next' && name in VISUAL_DEVIATIONS ? ['deviations', `${name}${suffix}.png`] : `${name}${suffix}.png`
+      await expect(page).toHaveScreenshot(snapshot())
       // Второй снимок раскрывает внутренний скролл `.scr`, чтобы сравнивать и содержимое ниже экрана.
       const expanded = await page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>('#app .scr')
@@ -144,7 +149,7 @@ export const test = base.extend<VisualFixtures & VisualOptions>({
         return true
       })
       if (expanded) {
-        await expect(page).toHaveScreenshot(`${name}--full.png`, { fullPage: true })
+        await expect(page).toHaveScreenshot(snapshot('--full'), { fullPage: true })
         await page.evaluate(() => {
           document.getElementById('visual-expand')?.remove()
           delete document.documentElement.dataset.visualExpanded

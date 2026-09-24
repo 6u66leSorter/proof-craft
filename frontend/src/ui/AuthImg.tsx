@@ -21,6 +21,9 @@ function loadBlobUrl(src: string): Promise<string> {
 /** Забыть закэшированную картинку (например, после замены аватара). */
 export const forgetAuthImage = (src: string) => cache.delete(src)
 
+/** Забыть все картинки (legacy `authImgCache.clear()` после правки фото работы). */
+export const clearAuthImages = () => cache.clear()
+
 type AuthImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & { src: string }
 
 /**
@@ -30,6 +33,7 @@ type AuthImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & { src: st
  */
 export function AuthImg({ src, alt, ...rest }: AuthImgProps) {
   const [url, setUrl] = useState<string | undefined>(undefined)
+  const epoch = useApp((s) => s.imageEpoch)
   useEffect(() => {
     let active = true
     loadBlobUrl(src).then(
@@ -39,7 +43,7 @@ export function AuthImg({ src, alt, ...rest }: AuthImgProps) {
     return () => {
       active = false
     }
-  }, [src])
+  }, [src, epoch])
   return (
     <img
       {...rest}

@@ -78,7 +78,6 @@ function TeacherCard({ name }: { name: string }) {
 
 export function HomeTab() {
   const st = useApp((s) => s.session?.student)
-  const avatarVersion = useApp((s) => s.avatarVersion)
   const homeworks = useStudentHomeworks()
   const fullName = String(st?.full_name || '').trim() || 'Ученик'
   const ratingsCount = Number(st?.ratings_count || 0)
@@ -104,7 +103,6 @@ export function HomeTab() {
         >
           {st?.has_avatar ? (
             <AuthImg
-              key={avatarVersion}
               src={ownAvatarUrl()}
               alt={`Фото ${fullName}`}
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}

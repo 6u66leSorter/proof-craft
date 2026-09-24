@@ -8,8 +8,11 @@ const nextViteBin = 'node_modules/vite/bin/vite.js'
 /** `legacy` снимает и проверяет эталоны; `next` сравнивает новый клиент с ними же. */
 export const target = process.env.VISUAL_TARGET === 'next' ? 'next' : 'legacy'
 
-if (target === 'next' && process.argv.some((arg) => arg === '-u' || arg.startsWith('--update-snapshots'))) {
-  throw new Error('Эталоны снимаются только с legacy-клиента: запускайте --update-snapshots без VISUAL_TARGET=next.')
+// С нового клиента можно только дописать отсутствующие эталоны согласованных отклонений (visual/deviations.ts):
+// режим missing никогда не перезаписывает существующие эталоны legacy.
+const updateArgs = process.argv.filter((arg) => arg === '-u' || arg.startsWith('--update-snapshots'))
+if (target === 'next' && updateArgs.some((arg) => arg !== '--update-snapshots=missing')) {
+  throw new Error('Эталоны снимаются с legacy-клиента. Для нового клиента допустим только --update-snapshots=missing (отклонения).')
 }
 
 const appServer: { command: string; cwd: string; env: Record<string, string> } =

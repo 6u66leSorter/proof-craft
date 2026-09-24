@@ -11,7 +11,8 @@
     "visual:test": "playwright test -c visual/playwright.config.ts",
     "visual:test:next": "VISUAL_TARGET=next playwright test -c visual/playwright.config.ts",
     "visual:update": "playwright test -c visual/playwright.config.ts --update-snapshots=all",
-    "visual:legacy-api": "node visual/legacy-api/start.mjs"
+    "visual:legacy-api": "node visual/legacy-api/start.mjs",
+    "visual:approve-deviations": "VISUAL_TARGET=next playwright test -c visual/playwright.config.ts --update-snapshots=missing"
   },
   "devDependencies": {
     "@fontsource/nunito-sans": "^5.3.0",

@@ -26,10 +26,10 @@ export function changeAvatar() {
       })
       const json = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(json.error || 'Ошибка загрузки')
-      const { session, avatarVersion } = useApp.getState()
+      const { session, imageEpoch } = useApp.getState()
       forgetAuthImage(ownAvatarUrl())
       if (session?.student) {
-        useApp.getState().patch({ session: { ...session, student: { ...session.student, has_avatar: true } }, avatarVersion: avatarVersion + 1 })
+        useApp.getState().patch({ session: { ...session, student: { ...session.student, has_avatar: true } }, imageEpoch: imageEpoch + 1 })
       }
       toast('Аватар обновлён')
     } catch (error) {

@@ -17,6 +17,24 @@ export type WebLoginState = {
   token: string | null
 }
 
+export type HwEditState = {
+  open: boolean
+  busy: boolean
+  error: string
+  removedPrimary: boolean
+  removedAttachmentIds: number[]
+  newPhotos: { url: string; file: File }[]
+}
+
+export const HW_EDIT_CLOSED: HwEditState = {
+  open: false,
+  busy: false,
+  error: '',
+  removedPrimary: false,
+  removedAttachmentIds: [],
+  newPhotos: [],
+}
+
 export const WEB_LOGIN_IDLE: WebLoginState = { status: 'idle', error: '', provider: null, token: null }
 
 type StackEntry = Selection & { scr: ScreenName; tab: string | null }
@@ -44,8 +62,16 @@ type AppState = Selection & {
   feedback: { subject: 'teacher' | 'academy' | 'other'; message: string; key: string | null; busy: boolean; sent: boolean; error: string }
   /** Генерация кода для входа из VK (только Telegram). */
   vkLinkGenerate: { loading: boolean; token: string | null; expiresAt: string | null; error: string }
-  /** Меняется после загрузки нового аватара, чтобы картинка перезапросилась. */
-  avatarVersion: number
+  /** Меняется, когда картинки API нужно перезапросить (новый аватар, правка фото работы). */
+  imageEpoch: number
+  /** Отправка нового ДЗ: оверлей загрузки, успеха или ошибки. */
+  hwSubmit: { status: 'idle' | 'loading' | 'success' | 'error'; error: string }
+  /** Отмена текущей загрузки ДЗ; вызывается кнопкой «Назад». */
+  hwSubmitAbort: (() => void) | null
+  /** Черновик нового ДЗ: сжатые фото и их превью. */
+  hwNewDraft: { url: string; file: File }[]
+  /** Модалка редактирования ДЗ на проверке. */
+  hwEdit: HwEditState
   /** Просмотр фото поверх экрана; сбрасывается при любом переходе. */
   lightbox: { items: PhotoItem[]; index: number } | null
   /** Категория учеников в гостевой витрине. */
@@ -79,7 +105,11 @@ export const useApp = create<AppState>()((set, get) => ({
   profileEdit: { open: false, busy: false, error: '' },
   feedback: { subject: 'teacher', message: '', key: null, busy: false, sent: false, error: '' },
   vkLinkGenerate: { loading: false, token: null, expiresAt: null, error: '' },
-  avatarVersion: 0,
+  imageEpoch: 0,
+  hwSubmit: { status: 'idle', error: '' },
+  hwSubmitAbort: null,
+  hwNewDraft: [],
+  hwEdit: HW_EDIT_CLOSED,
   lightbox: null,
   guestTrack: 'student',
   guestStudentId: null,
@@ -89,6 +119,7 @@ export const useApp = create<AppState>()((set, get) => ({
 
   go: (scr, data) => {
     const s = get()
+    if (scr === 'hw-new') set({ hwNewDraft: [] })
     set({
       lightbox: null,
       stack: [
@@ -110,6 +141,12 @@ export const useApp = create<AppState>()((set, get) => ({
   },
 
   back: () => {
+    const current = get()
+    if (current.scr === 'hw-new' && current.hwSubmit.status === 'loading') {
+      // Legacy: «Назад» во время загрузки ДЗ отменяет запрос и прячет оверлей.
+      current.hwSubmitAbort?.()
+      set({ hwSubmitAbort: null, hwSubmit: { status: 'idle', error: '' } })
+    }
     const stack = get().stack
     const prev = stack[stack.length - 1]
     if (!prev) {
