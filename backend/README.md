@@ -73,4 +73,4 @@ npm --prefix backend run prisma:validate
 npm --prefix backend run prisma:generate
 ```
 
-На baseline-этапе запрещены `prisma db push`, `prisma migrate dev` и `prisma migrate deploy`: миграций Prisma ещё нет, источником структуры остаётся `bot/database.js`.
+На baseline-этапе запрещены `prisma db push`, `prisma migrate dev` и `prisma migrate deploy`: миграций Prisma ещё нет, источником структуры остаётся `bot/database.js`. Его итоговая схема сохранена в `prisma/schema.sql`; пустую базу создаёт `node dist/database/init-schema.js` (в Docker — при `INIT_SCHEMA=1`), а `test/schema.e2e.test.ts` проверяет, что она совпадает с legacy.
