@@ -27,11 +27,11 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/api/web-auth/start` | публичный | Одноразовый запрос входа, Telegram/VK handoff URL | high | legacy |
-| GET | `/api/web-auth/status` | одноразовый токен | Polling подтверждения и выпуск web-session | high | legacy |
-| POST | `/api/web-auth/confirm/vk` | подписанные VK launch params | Подтверждение VK-входа | high | legacy |
-| POST | `/api/web-auth/logout` | web-session | Удаление сессии | medium | legacy |
-| GET | `/api/web-auth/session` | web-session | Проверка сессии сайта | medium | legacy |
+| POST | `/api/web-auth/start` | публичный | Одноразовый запрос входа, Telegram/VK handoff URL | high | nest-ready |
+| GET | `/api/web-auth/status` | одноразовый токен | Polling подтверждения и выпуск web-session | high | nest-ready |
+| POST | `/api/web-auth/confirm/vk` | подписанные VK launch params | Подтверждение VK-входа | high | nest-ready |
+| POST | `/api/web-auth/logout` | web-session | Удаление сессии | medium | nest-ready |
+| GET | `/api/web-auth/session` | web-session | Проверка сессии сайта | medium | nest-ready |
 | POST | `/api/account/vk-link-token` | Telegram | Четырёхзначный код привязки | high | legacy |
 | POST | `/api/account/vk-link-confirm` | VK | Связывание Telegram- и VK-идентичностей | high | legacy |
 

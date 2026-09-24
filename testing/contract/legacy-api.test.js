@@ -650,6 +650,7 @@ before(async () => {
       VK_APP_ID: '54558405',
       VK_APP_SECRET: testVkSecret,
       VK_ID_OFFSET: '10000000000',
+      TELEGRAM_BOT_USERNAME: 'contract_academy_bot',
       MAX_HOMEWORK_UPLOAD_MB: '0.001',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -4989,3 +4990,115 @@ test('PATCH student/homeworks/:id сохраняет validation, access и state
   assert.equal(unsigned.response.status, 401)
   assert.deepEqual([tooMany.response.status, tooMany.body], [500, { ok: false, error: 'Внутренняя ошибка сервера.' }])
 })
+
+
+const webAuthDb = (fn) => {
+  const db = new Database(legacyDatabasePath)
+  try {
+    return fn(db)
+  } finally {
+    db.close()
+  }
+}
+const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex')
+const approveLoginAs = (token, telegramId) => webAuthDb((db) => db.prepare(`
+  UPDATE web_login_requests SET user_id = (SELECT id FROM users WHERE telegram_id = ?), approved_at = datetime('now')
+  WHERE token_hash = ?
+`).run(telegramId, tokenHash(token)))
+
+const vkPost = async (path, vkUserId, launchParams) => {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'X-Client-Platform': 'vk', 'X-VK-User-Id': String(vkUserId), 'X-VK-Launch-Params': launchParams },
+  })
+  return { response, body: await response.json() }
+}
+
+test('POST web-auth/start выдаёт одноразовый токен и ссылку для Telegram и VK', async () => {
+  const telegram = await postJson('/api/web-auth/start', { provider: 'telegram' })
+  assert.equal(telegram.response.status, 200)
+  assert.match(telegram.body.data.token, /^[A-Za-z0-9_-]{43}$/)
+  assert.equal(telegram.body.data.handoff_url, `https://t.me/contract_academy_bot?start=webauth_${telegram.body.data.token}`)
+  assert.equal(telegram.body.data.expires_in_seconds, 900)
+  const vk = await postJson('/api/web-auth/start', { provider: 'vk' })
+  assert.equal(vk.body.data.handoff_url, `https://vk.com/app54558405?web_login=${vk.body.data.token}`)
+  const row = webAuthDb((db) => db.prepare(`
+    SELECT provider, user_id, (julianday(expires_at) - julianday('now')) * 1440 AS minutes
+    FROM web_login_requests WHERE token_hash = ?
+  `).get(tokenHash(vk.body.data.token)))
+  assert.equal(row.provider, 'vk')
+  assert.equal(row.user_id, null)
+  assert.ok(row.minutes > 14.9 && row.minutes <= 15)
+  const invalid = await postJson('/api/web-auth/start', { provider: 'email' })
+  assert.deepEqual([invalid.response.status, invalid.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+})
+
+test('GET web-auth/status: pending, approved с выпуском сессии ровно один раз и истёкший токен', async () => {
+  const { body } = await postJson('/api/web-auth/start', { provider: 'telegram' })
+  const token = body.data.token
+  const pending = await getJson(`/api/web-auth/status?token=${token}`)
+  assert.deepEqual([pending.response.status, pending.body], [200, { ok: true, data: { status: 'pending' } }])
+  approveLoginAs(token, 3001)
+  const approved = await getJson(`/api/web-auth/status?token=${token}`)
+  assert.equal(approved.response.status, 200)
+  assert.equal(approved.body.data.status, 'approved')
+  assert.equal(approved.body.data.telegram_id, 3001)
+  assert.match(approved.body.data.session_token, /^[A-Za-z0-9_-]{43}$/)
+  const session = webAuthDb((db) => db.prepare(`
+    SELECT u.telegram_id, (julianday(ws.expires_at) - julianday('now')) AS days
+    FROM web_sessions ws JOIN users u ON u.id = ws.user_id WHERE ws.token_hash = ?
+  `).get(tokenHash(approved.body.data.session_token)))
+  assert.equal(session.telegram_id, 3001)
+  assert.ok(session.days > 13.99 && session.days <= 14)
+  const reused = await getJson(`/api/web-auth/status?token=${token}`)
+  assert.deepEqual([reused.response.status, reused.body], [410, { ok: false, error: 'Время подтверждения входа истекло. Начните заново.' }])
+  const short = await getJson('/api/web-auth/status?token=short')
+  assert.deepEqual([short.response.status, short.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+})
+
+test('GET web-auth/session и POST web-auth/logout проверяют и удаляют web-сессию', async () => {
+  const { body } = await postJson('/api/web-auth/start', { provider: 'telegram' })
+  approveLoginAs(body.data.token, 2001)
+  const { body: approved } = await getJson(`/api/web-auth/status?token=${body.data.token}`)
+  const sessionToken = approved.data.session_token
+  const check = await fetch(`${baseUrl}/api/web-auth/session`, { headers: { 'X-Web-Session': sessionToken } })
+  assert.deepEqual([check.status, await check.json()], [200, { ok: true, data: { telegram_id: 2001 } }])
+  const logout = await fetch(`${baseUrl}/api/web-auth/logout`, { method: 'POST', headers: { 'X-Web-Session': sessionToken } })
+  assert.deepEqual([logout.status, await logout.json()], [200, { ok: true }])
+  const after = await fetch(`${baseUrl}/api/web-auth/session`, { headers: { 'X-Web-Session': sessionToken } })
+  assert.deepEqual([after.status, await after.json()], [401, { ok: false, error: 'Сессия сайта истекла. Войдите снова.' }])
+  const anonymousLogout = await fetch(`${baseUrl}/api/web-auth/logout`, { method: 'POST' })
+  assert.deepEqual([anonymousLogout.status, await anonymousLogout.json()], [200, { ok: true }])
+})
+
+test('POST web-auth/confirm/vk подтверждает вход по подписанным параметрам один раз', async () => {
+  const { body } = await postJson('/api/web-auth/start', { provider: 'vk' })
+  const path = `/api/web-auth/confirm/vk?token=${body.data.token}`
+  const unsigned = await vkPost(path, 7001, 'vk_user_id=7001&sign=broken')
+  assert.deepEqual([unsigned.response.status, unsigned.body], [401, { ok: false, error: 'Не удалось подтвердить вход через VK.' }])
+  const confirmed = await vkPost(path, 7001, buildVkLaunchParams(7001))
+  assert.deepEqual([confirmed.response.status, confirmed.body], [200, { ok: true, data: { approved: true } }])
+  const request = webAuthDb((db) => db.prepare(`
+    SELECT u.telegram_id FROM web_login_requests r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ?
+  `).get(tokenHash(body.data.token)))
+  assert.equal(request.telegram_id, 3001)
+  const audit = webAuthDb((db) => db.prepare(`SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1`).get())
+  assert.deepEqual(audit, { action: 'web_login_approved', meta: JSON.stringify({ provider: 'vk' }) })
+  const reused = await vkPost(path, 7001, buildVkLaunchParams(7001))
+  assert.deepEqual([reused.response.status, reused.body], [410, { ok: false, error: 'Ссылка для входа недействительна или уже использована.' }])
+  const telegramToken = (await postJson('/api/web-auth/start', { provider: 'telegram' })).body.data.token
+  const wrongProvider = await vkPost(`/api/web-auth/confirm/vk?token=${telegramToken}`, 7001, buildVkLaunchParams(7001))
+  assert.equal(wrongProvider.response.status, 410)
+})
+
+test('legacy SEC-005: confirm/vk берёт пользователя из X-VK-User-Id, не сверяя с подписанными параметрами', async () => {
+  const { body } = await postJson('/api/web-auth/start', { provider: 'vk' })
+  const result = await vkPost(`/api/web-auth/confirm/vk?token=${body.data.token}`, 7777, buildVkLaunchParams(7001))
+  assert.equal(result.response.status, 200)
+  const request = webAuthDb((db) => db.prepare(`
+    SELECT u.telegram_id, u.vk_user_id FROM web_login_requests r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ?
+  `).get(tokenHash(body.data.token)))
+  assert.deepEqual(request, { telegram_id: 10000007777, vk_user_id: 7777 })
+})
+
+test.todo('SEC-005: confirm/vk должен брать VK-пользователя только из подписанных launch params')

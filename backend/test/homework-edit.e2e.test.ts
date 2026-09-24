@@ -167,10 +167,11 @@ test('правка pending-работы меняет поля, удаляет и
   })
   assert.notEqual(homework.updated_at, '2026-09-24 09:00:00')
   const state = readState(homeworkId)
-  assert.equal(state.files[0].id, keepId)
+  const [kept, added] = state.files
+  assert.equal(kept?.id, keepId)
   assert.equal(state.files.length, 2)
-  assert.equal(state.files[1].sort_order, 2)
-  assert.match(String(state.files[1].file_id), /\.jpg$/)
+  assert.equal(added?.sort_order, 2)
+  assert.match(String(added?.file_id), /\.jpg$/)
   assert.ok(existsSync(paths.remove))
 })
 
