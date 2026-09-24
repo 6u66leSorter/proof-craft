@@ -1179,3 +1179,311 @@ test('POST admin assignment сохраняет validation, auth и domain-оши
   `).run(ids.teacherId)
   cleanup.close()
 })
+
+test('POST admin/update-student обновляет профиль и заменяет назначения', async () => {
+  const setup = new Database(databasePath)
+  setup.prepare(`
+    UPDATE students
+    SET lessons_count = 15, student_track = 'student', status = 'completed'
+    WHERE id = ?
+  `).run(ids.completedStudentId)
+  setup.prepare(`
+    INSERT OR IGNORE INTO student_teachers (student_id, teacher_id) VALUES (?, ?)
+  `).run(ids.completedStudentId, ids.teacherId)
+  setup.close()
+
+  const update = await app.inject({
+    method: 'POST',
+    url: '/api/admin/update-student',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      student_id: String(ids.completedStudentId),
+      lessons_count: '18',
+      student_track: 'intern',
+      teacher_ids: [String(ids.teacherId), ids.teacherId],
+    },
+  })
+  assert.equal(update.statusCode, 200)
+  assert.deepEqual(update.json(), { ok: true })
+
+  let db = new Database(databasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT lessons_count, student_track FROM students WHERE id = ?
+  `).get(ids.completedStudentId), {
+    lessons_count: 18,
+    student_track: 'intern',
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ? ORDER BY teacher_id
+  `).all(ids.completedStudentId), [{ teacher_id: ids.teacherId }])
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_update_student',
+    meta: JSON.stringify({
+      student_id: ids.completedStudentId,
+      lessons_count: 18,
+      student_track: 'intern',
+      teacher_ids: [ids.teacherId, ids.teacherId],
+    }),
+  })
+  db.close()
+
+  const clear = await app.inject({
+    method: 'POST',
+    url: '/admin/update-student',
+    headers: {
+      'x-web-session': adminWebSessionToken,
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      student_id: ids.completedStudentId,
+      teacher_ids: [],
+    },
+  })
+  assert.equal(clear.statusCode, 200)
+  assert.deepEqual(clear.json(), { ok: true })
+
+  const noop = await app.inject({
+    method: 'POST',
+    url: '/api/admin/update-student',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      student_id: ids.completedStudentId,
+    },
+  })
+  assert.equal(noop.statusCode, 200)
+  assert.deepEqual(noop.json(), { ok: true })
+
+  db = new Database(databasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ?
+  `).all(ids.completedStudentId), [])
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_update_student',
+    meta: JSON.stringify({
+      student_id: ids.completedStudentId,
+      lessons_count: null,
+      student_track: null,
+      teacher_ids: null,
+    }),
+  })
+  db.close()
+})
+
+test('POST admin/update-student снимает назначения при переходе в barber', async () => {
+  const setup = new Database(databasePath)
+  setup.prepare(`
+    INSERT OR IGNORE INTO student_teachers (student_id, teacher_id) VALUES (?, ?)
+  `).run(ids.completedStudentId, ids.teacherId)
+  setup.close()
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/admin/update-student',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      student_id: ids.completedStudentId,
+      student_track: 'barber',
+      teacher_ids: [ids.teacherId],
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+
+  const db = new Database(databasePath, { readonly: true })
+  assert.equal((db.prepare(`
+    SELECT student_track FROM students WHERE id = ?
+  `).get(ids.completedStudentId) as { student_track: string }).student_track, 'barber')
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ?
+  `).all(ids.completedStudentId), [])
+  db.close()
+})
+
+test('POST admin/update-student сохраняет partial-write BUG-003 перед domain-ошибкой', async () => {
+  const setup = new Database(databasePath)
+  setup.prepare(`
+    UPDATE students
+    SET lessons_count = 10, student_track = 'student', status = 'moderation'
+    WHERE id = ?
+  `).run(ids.moderationStudentId)
+  setup.prepare(`
+    INSERT OR IGNORE INTO student_teachers (student_id, teacher_id) VALUES (?, ?)
+  `).run(ids.moderationStudentId, ids.teacherId)
+  setup.prepare(`
+    UPDATE students
+    SET lessons_count = 15, student_track = 'student', status = 'completed'
+    WHERE id = ?
+  `).run(ids.completedStudentId)
+  setup.prepare(`
+    INSERT OR IGNORE INTO student_teachers (student_id, teacher_id) VALUES (?, ?)
+  `).run(ids.completedStudentId, ids.teacherId)
+  const auditCountBefore = setup.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+    WHERE action = 'admin_update_student'
+      AND json_extract(meta, '$.student_id') IN (?, ?)
+  `).get(ids.moderationStudentId, ids.completedStudentId) as { count: number }
+  setup.close()
+
+  const invalidStatus = await app.inject({
+    method: 'POST',
+    url: '/api/admin/update-student',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      student_id: ids.moderationStudentId,
+      lessons_count: 9,
+      student_track: 'barber',
+      teacher_ids: [ids.teacherId],
+    },
+  })
+  assert.equal(invalidStatus.statusCode, 400)
+  assert.deepEqual(invalidStatus.json(), {
+    ok: false,
+    error: 'Назначать преподавателей можно только при статусе «обучается» или «завершил».',
+  })
+
+  const invalidTeacher = await app.inject({
+    method: 'POST',
+    url: '/api/admin/update-student',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      student_id: ids.completedStudentId,
+      lessons_count: 8,
+      student_track: 'intern',
+      teacher_ids: [999999],
+    },
+  })
+  assert.equal(invalidTeacher.statusCode, 400)
+  assert.deepEqual(invalidTeacher.json(), {
+    ok: false,
+    error: 'Преподаватель с id 999999 не найден.',
+  })
+
+  const db = new Database(databasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT lessons_count, student_track FROM students WHERE id = ?
+  `).get(ids.moderationStudentId), {
+    lessons_count: 9,
+    student_track: 'barber',
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ?
+  `).all(ids.moderationStudentId), [])
+  assert.deepEqual(db.prepare(`
+    SELECT lessons_count, student_track FROM students WHERE id = ?
+  `).get(ids.completedStudentId), {
+    lessons_count: 8,
+    student_track: 'intern',
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ?
+  `).all(ids.completedStudentId), [{ teacher_id: ids.teacherId }])
+  const auditCountAfter = db.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+    WHERE action = 'admin_update_student'
+      AND json_extract(meta, '$.student_id') IN (?, ?)
+  `).get(ids.moderationStudentId, ids.completedStudentId) as { count: number }
+  assert.equal(auditCountAfter.count, auditCountBefore.count)
+  db.close()
+})
+
+test('POST admin/update-student сохраняет validation, auth и domain-ошибки', async (context) => {
+  const injectUpdate = async (
+    payload: Record<string, unknown>,
+    telegramId?: number,
+  ) => await app.inject({
+    method: 'POST',
+    url: '/api/admin/update-student',
+    headers: {
+      ...(telegramId == null ? {} : authHeaders(telegramId)),
+      'content-type': 'application/json',
+    },
+    payload,
+  })
+  const valid = { telegram_id: adminTelegramId, student_id: 999999 }
+
+  await context.test('body проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, student_id: 0 },
+      { ...valid, lessons_count: -1 },
+      { ...valid, lessons_count: 1.5 },
+      { ...valid, student_track: 'master' },
+      { ...valid, teacher_ids: null },
+      { ...valid, teacher_ids: [0] },
+    ]) {
+      const response = await injectUpdate(payload)
+      assert.equal(response.statusCode, 400)
+      assert.deepEqual(response.json(), {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  assert.equal((await injectUpdate(valid)).statusCode, 401)
+  assert.equal((await injectUpdate(valid, studentTelegramId)).statusCode, 403)
+
+  const nonAdmin = await injectUpdate({
+    telegram_id: studentTelegramId,
+    student_id: 999999,
+  }, studentTelegramId)
+  assert.equal(nonAdmin.statusCode, 403)
+  assert.deepEqual(nonAdmin.json(), {
+    ok: false,
+    error: 'Доступ только для администраторов.',
+  })
+
+  const missing = await injectUpdate(valid, adminTelegramId)
+  assert.equal(missing.statusCode, 404)
+  assert.deepEqual(missing.json(), { ok: false, error: 'Ученик не найден.' })
+
+  const deactivate = new Database(databasePath)
+  deactivate.prepare(`
+    DELETE FROM user_roles
+    WHERE user_id = (SELECT user_id FROM teachers WHERE id = ?) AND role = 'teacher'
+  `).run(ids.teacherId)
+  deactivate.close()
+  const inactiveTeacher = await injectUpdate({
+    telegram_id: adminTelegramId,
+    student_id: ids.completedStudentId,
+    lessons_count: 7,
+    teacher_ids: [ids.teacherId],
+  }, adminTelegramId)
+  assert.equal(inactiveTeacher.statusCode, 400)
+  assert.deepEqual(inactiveTeacher.json(), {
+    ok: false,
+    error: `Преподаватель с id ${ids.teacherId} не найден.`,
+  })
+  const restore = new Database(databasePath)
+  assert.equal((restore.prepare(`
+    SELECT lessons_count FROM students WHERE id = ?
+  `).get(ids.completedStudentId) as { lessons_count: number }).lessons_count, 7)
+  restore.prepare(`
+    INSERT INTO user_roles (user_id, role)
+    SELECT user_id, 'teacher' FROM teachers WHERE id = ?
+  `).run(ids.teacherId)
+  restore.close()
+})

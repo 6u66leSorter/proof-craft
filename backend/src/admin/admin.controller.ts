@@ -38,6 +38,12 @@ import {
 } from './admin-student-assignment.body.js'
 import { AdminStudentAssignmentGuard } from './admin-student-assignment.guard.js'
 import { ChangeAdminStudentAssignmentUseCase } from './change-admin-student-assignment.use-case.js'
+import {
+  adminStudentUpdateCommandFrom,
+  type AdminStudentUpdateRequest,
+} from './admin-student-update.body.js'
+import { AdminStudentUpdateGuard } from './admin-student-update.guard.js'
+import { UpdateAdminStudentUseCase } from './update-admin-student.use-case.js'
 
 @Controller(['api/admin', 'admin'])
 export class AdminController {
@@ -62,6 +68,8 @@ export class AdminController {
     private readonly changeTeacherRole: ChangeAdminTeacherRoleUseCase,
     @Inject(ChangeAdminStudentAssignmentUseCase)
     private readonly changeStudentAssignment: ChangeAdminStudentAssignmentUseCase,
+    @Inject(UpdateAdminStudentUseCase)
+    private readonly updateStudent: UpdateAdminStudentUseCase,
   ) {}
 
   @Get('teacher-applications')
@@ -125,6 +133,19 @@ export class AdminController {
     return await this.changeStudentAssignment.unassign(
       principal,
       adminStudentAssignmentCommandFrom(request),
+    )
+  }
+
+  @Post('update-student')
+  @HttpCode(200)
+  @UseGuards(AdminStudentUpdateGuard, AuthenticationGuard)
+  async updateStudentProfile(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Req() request: AdminStudentUpdateRequest,
+  ): Promise<{ ok: true }> {
+    return await this.updateStudent.execute(
+      principal,
+      adminStudentUpdateCommandFrom(request),
     )
   }
 

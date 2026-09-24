@@ -34,6 +34,10 @@ import { AdminStudentAssignmentGuard } from './admin-student-assignment.guard.js
 import { AdminStudentAssignmentRepository } from './admin-student-assignment.repository.js'
 import { ChangeAdminStudentAssignmentUseCase } from './change-admin-student-assignment.use-case.js'
 import { PrismaAdminStudentAssignmentRepository } from './prisma-admin-student-assignment.repository.js'
+import { AdminStudentUpdateGuard } from './admin-student-update.guard.js'
+import { AdminStudentUpdateRepository } from './admin-student-update.repository.js'
+import { PrismaAdminStudentUpdateRepository } from './prisma-admin-student-update.repository.js'
+import { UpdateAdminStudentUseCase } from './update-admin-student.use-case.js'
 
 @Module({
   imports: [AuthModule, NotificationsModule, PersistenceModule, StorageModule],
@@ -47,6 +51,7 @@ import { PrismaAdminStudentAssignmentRepository } from './prisma-admin-student-a
     AdminStudentModerationGuard,
     AdminTeacherRoleGuard,
     AdminStudentAssignmentGuard,
+    AdminStudentUpdateGuard,
     GetAdminStudentUseCase,
     ListAdminAuditUseCase,
     ListAdminFeedbackUseCase,
@@ -57,6 +62,7 @@ import { PrismaAdminStudentAssignmentRepository } from './prisma-admin-student-a
     ModerateAdminStudentUseCase,
     ChangeAdminTeacherRoleUseCase,
     ChangeAdminStudentAssignmentUseCase,
+    UpdateAdminStudentUseCase,
     {
       provide: AdminReadRepository,
       useClass: PrismaAdminReadRepository,
@@ -72,6 +78,10 @@ import { PrismaAdminStudentAssignmentRepository } from './prisma-admin-student-a
     {
       provide: AdminStudentAssignmentRepository,
       useClass: PrismaAdminStudentAssignmentRepository,
+    },
+    {
+      provide: AdminStudentUpdateRepository,
+      useClass: PrismaAdminStudentUpdateRepository,
     },
   ],
 })
