@@ -63,11 +63,13 @@ const seedLegacyDatabase = (databasePath) => {
   const pendingFilePath = join(uploadsDir, 'pending.txt')
   const revisionFilePath = join(uploadsDir, 'revision.svg')
   const secondStudentFilePath = join(uploadsDir, 'second-student.txt')
+  const chatFilePath = join(uploadsDir, 'chat-file.txt')
   writeFileSync(approvedFilePath, 'approved file')
   writeFileSync(avatarFilePath, 'avatar file')
   writeFileSync(pendingFilePath, testImageSvg)
   writeFileSync(revisionFilePath, testImageSvg)
   writeFileSync(secondStudentFilePath, 'second student file')
+  writeFileSync(chatFilePath, 'chat file')
   const insertUser = db.prepare(`
     INSERT INTO users (telegram_id, first_name, last_name, role)
     VALUES (?, ?, ?, ?)
@@ -104,6 +106,44 @@ const seedLegacyDatabase = (databasePath) => {
 
   db.prepare('INSERT INTO student_teachers (student_id, teacher_id) VALUES (?, ?)')
     .run(studentOneId, teacherId)
+
+  const insertChatMessage = db.prepare(`
+    INSERT INTO chat_messages
+      (student_id, sender_user_id, text_content, content_type, file_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  const studentChatMessageId = Number(insertChatMessage.run(
+    studentOneId,
+    studentOneUserId,
+    'Сообщение ученика',
+    'text',
+    null,
+    '2026-09-24 08:00:00',
+  ).lastInsertRowid)
+  const teacherChatFileMessageId = Number(insertChatMessage.run(
+    studentOneId,
+    teacherUserId,
+    'Файл преподавателя',
+    'document',
+    chatFilePath,
+    '2026-09-24 08:01:00',
+  ).lastInsertRowid)
+  const adminChatMessageId = Number(insertChatMessage.run(
+    studentOneId,
+    adminUserId,
+    'Сообщение администратора',
+    'text',
+    null,
+    '2026-09-24 08:02:00',
+  ).lastInsertRowid)
+  const systemChatMessageId = Number(insertChatMessage.run(
+    studentOneId,
+    adminUserId,
+    'Системное сообщение',
+    'system',
+    null,
+    '2026-09-24 08:03:00',
+  ).lastInsertRowid)
 
   const insertHomework = db.prepare(`
     INSERT INTO homeworks
@@ -316,6 +356,11 @@ const seedLegacyDatabase = (databasePath) => {
     approvedTeacherApplicationId,
     pendingTeacherApplicationId,
     feedbackIds,
+    studentChatMessageId,
+    teacherChatFileMessageId,
+    adminChatMessageId,
+    systemChatMessageId,
+    chatFilePath,
   }
 }
 
@@ -372,6 +417,210 @@ const postJson = async (path, body, telegramUserId = null) => {
     body: JSON.stringify(body),
   })
   return { response, body: await response.json() }
+}
+
+const postMultipart = async (path, fields, telegramUserId = null, file = null) => {
+  const body = new FormData()
+  for (const [key, value] of Object.entries(fields)) body.set(key, String(value))
+  const files = file == null ? [] : Array.isArray(file) ? file : [file]
+  for (const item of files) {
+    body.append(item.field ?? 'file', new Blob([item.content], { type: item.type }), item.name)
+  }
+  const headers = telegramUserId == null
+    ? {}
+    : { 'X-Telegram-Init-Data': buildTelegramInitData(telegramUserId) }
+  const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers, body })
+  return { response, body: await response.json() }
+}
+
+const createHomeworkSubmissionFixture = () => {
+  const db = new Database(legacyDatabasePath)
+  const studentUserId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (9601, 'Контрактная', 'Ученица', 'student')
+  `).run().lastInsertRowid)
+  const teacherUserId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (9602, 'Контрактный', 'Наставник', 'teacher')
+  `).run().lastInsertRowid)
+  db.prepare(`INSERT INTO user_roles (user_id, role) VALUES (?, 'student')`).run(studentUserId)
+  db.prepare(`INSERT INTO user_roles (user_id, role) VALUES (?, 'teacher')`).run(teacherUserId)
+  const studentId = Number(db.prepare(`
+    INSERT INTO students (user_id, full_name, phone, lessons_count, status)
+    VALUES (?, 'Контрактная Ученица', '+79990009601', 3, 'studying')
+  `).run(studentUserId).lastInsertRowid)
+  const teacherId = Number(db.prepare(`
+    INSERT INTO teachers (user_id, full_name) VALUES (?, 'Контрактный Наставник')
+  `).run(teacherUserId).lastInsertRowid)
+  db.prepare(`INSERT INTO student_teachers (student_id, teacher_id) VALUES (?, ?)`)
+    .run(studentId, teacherId)
+  db.close()
+  return { studentId, studentUserId, teacherUserId }
+}
+
+const removeHomeworkSubmissionFixture = ({ studentId, studentUserId, teacherUserId }) => {
+  const db = new Database(legacyDatabasePath)
+  const transaction = db.transaction(() => {
+    db.prepare(`DELETE FROM app_notifications WHERE payload LIKE ?`)
+      .run(`%"student_id":${studentId}%`)
+    db.prepare(`DELETE FROM homework_files WHERE homework_id IN (
+      SELECT id FROM homeworks WHERE student_id = ?
+    )`).run(studentId)
+    db.prepare('DELETE FROM homeworks WHERE student_id = ?').run(studentId)
+    db.prepare('DELETE FROM student_teachers WHERE student_id = ?').run(studentId)
+    db.prepare('DELETE FROM teachers WHERE user_id = ?').run(teacherUserId)
+    db.prepare('DELETE FROM students WHERE id = ?').run(studentId)
+    db.prepare('DELETE FROM user_roles WHERE user_id IN (?, ?)')
+      .run(studentUserId, teacherUserId)
+    db.prepare('DELETE FROM users WHERE id IN (?, ?)').run(studentUserId, teacherUserId)
+  })
+  transaction()
+  db.close()
+}
+
+const createPendingHomework = ({ studentId, lessonNumber, isBonus = 0 }) => {
+  const db = new Database(legacyDatabasePath)
+  const id = Number(db.prepare(`
+    INSERT INTO homeworks
+      (student_id, lesson_number, is_bonus, content_type, text_content, status, haircut_name)
+    VALUES (?, ?, ?, 'text', ?, 'pending', 'Контрактная работа')
+  `).run(
+    studentId,
+    lessonNumber,
+    isBonus,
+    `Работа для проверки ${lessonNumber}`,
+  ).lastInsertRowid)
+  db.close()
+  return id
+}
+
+const createModerationStudent = (telegramId = 0) => {
+  const db = new Database(legacyDatabasePath)
+  const userId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, 'Новый', 'Ученик', 'student')
+  `).run(telegramId).lastInsertRowid)
+  db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)').run(userId, 'student')
+  const studentId = Number(db.prepare(`
+    INSERT INTO students
+      (user_id, full_name, phone, lessons_count, status)
+    VALUES (?, 'Новый Ученик', '+79990000999', 10, 'moderation')
+  `).run(userId).lastInsertRowid)
+  db.close()
+  return { userId, studentId }
+}
+
+const createAssignmentFixture = ({
+  teacherTelegramId = 9201,
+  studentTelegramId = 9202,
+  studentTrack = 'student',
+} = {}) => {
+  const db = new Database(legacyDatabasePath)
+  const insertUser = db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, ?, ?, ?)
+  `)
+  const teacherUserId = Number(
+    insertUser.run(teacherTelegramId, 'Новый', 'Наставник', 'teacher').lastInsertRowid,
+  )
+  const studentUserId = Number(
+    insertUser.run(studentTelegramId, 'Новый', 'Подопечный', 'student').lastInsertRowid,
+  )
+  db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+    .run(teacherUserId, 'teacher')
+  db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+    .run(studentUserId, 'student')
+  const teacherId = Number(db.prepare(`
+    INSERT INTO teachers (user_id, full_name) VALUES (?, 'Новый Наставник')
+  `).run(teacherUserId).lastInsertRowid)
+  const studentId = Number(db.prepare(`
+    INSERT INTO students
+      (user_id, full_name, phone, lessons_count, status, student_track)
+    VALUES (?, 'Новый Подопечный', '+79990000920', 10, 'completed', ?)
+  `).run(studentUserId, studentTrack).lastInsertRowid)
+  db.close()
+  return {
+    teacherTelegramId,
+    studentTelegramId,
+    teacherUserId,
+    studentUserId,
+    teacherId,
+    studentId,
+  }
+}
+
+const createUpdateStudentFixture = ({ telegramId = 9301, status = 'studying' } = {}) => {
+  const db = new Database(legacyDatabasePath)
+  const userId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, 'Редактируемый', 'Ученик', 'student')
+  `).run(telegramId).lastInsertRowid)
+  db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+    .run(userId, 'student')
+  const studentId = Number(db.prepare(`
+    INSERT INTO students
+      (user_id, full_name, phone, lessons_count, status, student_track)
+    VALUES (?, 'Редактируемый Ученик', '+79990000930', 5, ?, 'student')
+  `).run(userId, status).lastInsertRowid)
+  const teacherId = db.prepare(`
+    SELECT t.id FROM teachers t
+    JOIN users u ON u.id = t.user_id
+    WHERE u.telegram_id = 2001
+  `).get().id
+  db.prepare(`
+    INSERT INTO student_teachers (student_id, teacher_id) VALUES (?, ?)
+  `).run(studentId, teacherId)
+  db.close()
+  return { userId, studentId, teacherId }
+}
+
+const createTeacherApplicationFixture = ({
+  telegramId,
+  status = 'pending',
+  existingTeacher = false,
+} = {}) => {
+  const db = new Database(legacyDatabasePath)
+  const userId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, 'Кандидат', 'Преподаватель', 'guest')
+  `).run(telegramId).lastInsertRowid)
+  if (existingTeacher) {
+    db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+      .run(userId, 'teacher')
+    db.prepare(`
+      INSERT INTO teachers (user_id, full_name) VALUES (?, 'Существующий Преподаватель')
+    `).run(userId)
+  }
+  const applicationId = Number(db.prepare(`
+    INSERT INTO teacher_applications
+      (applicant_user_id, full_name, phone, status)
+    VALUES (?, 'Кандидат Преподаватель', '+79990000940', ?)
+  `).run(userId, status).lastInsertRowid)
+  db.close()
+  return { userId, applicationId }
+}
+
+const removeTeacherApplicationFixture = ({ userId, applicationId }) => {
+  const db = new Database(legacyDatabasePath)
+  db.prepare('DELETE FROM audit_log WHERE meta LIKE ?')
+    .run(`%\"application_id\":${applicationId}%`)
+  db.prepare('DELETE FROM app_notifications WHERE user_id = ?').run(userId)
+  db.prepare('DELETE FROM teacher_applications WHERE id = ?').run(applicationId)
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId)
+  db.close()
+}
+
+const removeTeacherApplicationSubmission = (telegramId) => {
+  const db = new Database(legacyDatabasePath)
+  const user = db.prepare('SELECT id FROM users WHERE telegram_id = ?').get(telegramId)
+  if (user) {
+    db.prepare(`
+      DELETE FROM app_notifications
+      WHERE kind = 'teacher_application' AND payload LIKE ?
+    `).run(`%\"applicant_user_id\":${user.id}%`)
+    db.prepare('DELETE FROM users WHERE id = ?').run(user.id)
+  }
+  db.close()
 }
 
 let fixtureIds
@@ -726,6 +975,322 @@ test('student/homeworks сохраняет auth и not-found ошибки', asyn
     const { response, body } = await getJson('/api/student/homeworks?telegram_id=9999', 9999)
     assert.equal(response.status, 404)
     assert.deepEqual(body, { ok: false, error: 'Ученик не найден.' })
+  })
+})
+
+test('POST /api/homeworks сохраняет multipart-контракт, ограничения и side effects', async (context) => {
+  const fixture = createHomeworkSubmissionFixture()
+  context.after(() => removeHomeworkSubmissionFixture(fixture))
+
+  await context.test('текстовая работа создаётся вместе с уведомлениями', async () => {
+    const result = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 1,
+      text_content: '  Текстовая работа  ',
+      haircut_name: `  ${'А'.repeat(205)}  `,
+    }, 9601)
+    assert.equal(result.response.status, 201)
+    const homework = result.body.data.homework
+    assert.equal(homework.lesson_number, 1)
+    assert.equal(homework.is_bonus, false)
+    assert.equal(homework.haircut_name, 'А'.repeat(200))
+    assert.equal(homework.content_type, 'text')
+    assert.equal(homework.text_content, 'Текстовая работа')
+    assert.equal(homework.status, 'pending')
+    assert.equal(homework.has_local_file, false)
+    assert.equal(homework.extra_files_count, 0)
+    assert.deepEqual(homework.attachments, [])
+
+    const db = new Database(legacyDatabasePath, { readonly: true })
+    const notifications = db.prepare(`
+      SELECT u.telegram_id, n.kind, n.body, n.payload
+      FROM app_notifications n
+      JOIN users u ON u.id = n.user_id
+      WHERE n.kind = 'new_homework' AND n.payload = ?
+      ORDER BY u.telegram_id
+    `).all(JSON.stringify({ student_id: fixture.studentId, homework_id: homework.id }))
+    db.close()
+    assert.deepEqual(notifications.map(({ telegram_id, kind, body, payload }) => ({
+      telegram_id: Number(telegram_id), kind, body, payload,
+    })), [
+      {
+        telegram_id: 1001,
+        kind: 'new_homework',
+        body: `Ученик Контрактная Ученица отправил ДЗ по урок №1 («${'А'.repeat(200)}»).`,
+        payload: JSON.stringify({ student_id: fixture.studentId, homework_id: homework.id }),
+      },
+      {
+        telegram_id: 9602,
+        kind: 'new_homework',
+        body: `Ученик Контрактная Ученица отправил ДЗ по урок №1 («${'А'.repeat(200)}»).`,
+        payload: JSON.stringify({ student_id: fixture.studentId, homework_id: homework.id }),
+      },
+    ])
+  })
+
+  await context.test('серия фото создаёт primary и упорядоченные attachments', async () => {
+    const result = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 2,
+      text_content: 'Серия фото',
+    }, 9601, [
+      { field: 'files', content: testImageSvg, type: 'image/svg+xml', name: 'first.svg' },
+      { field: 'files', content: testImageSvg, type: 'image/svg+xml', name: 'second.svg' },
+      { field: 'ignored', content: 'ignored', type: 'text/plain', name: 'ignored.txt' },
+    ])
+    assert.equal(result.response.status, 201)
+    const homework = result.body.data.homework
+    assert.equal(homework.content_type, 'photo')
+    assert.equal(homework.has_local_file, true)
+    assert.equal(homework.extra_files_count, 1)
+    assert.deepEqual(homework.attachments.map(({ content_type }) => content_type), ['photo'])
+
+    const db = new Database(legacyDatabasePath, { readonly: true })
+    const files = db.prepare(`
+      SELECT file_id, 0 AS sort_order FROM homeworks WHERE id = ?
+      UNION ALL
+      SELECT file_id, sort_order FROM homework_files WHERE homework_id = ?
+      ORDER BY sort_order
+    `).all(homework.id, homework.id)
+    db.close()
+    assert.deepEqual(files.map(({ sort_order }) => sort_order), [0, 1])
+    assert.ok(files.every(({ file_id }) => existsSync(file_id) && file_id.endsWith('.jpg')))
+  })
+
+  await context.test('duplicate, lesson bounds, empty и auth ошибки сохраняются', async () => {
+    const duplicate = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 1,
+      text_content: 'Дубликат',
+    }, 9601)
+    assert.equal(duplicate.response.status, 409)
+    assert.deepEqual(duplicate.body, {
+      ok: false,
+      error: 'По этому уроку или бонусу уже есть работа на проверке. Дождитесь проверки преподавателя.',
+    })
+
+    const unavailable = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 4,
+      text_content: 'Недоступный урок',
+    }, 9601)
+    assert.equal(unavailable.response.status, 400)
+    assert.deepEqual(unavailable.body, {
+      ok: false,
+      error: 'Урок №4 недоступен. По вашей программе 3 уроков.',
+    })
+
+    const empty = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      is_bonus: true,
+      text_content: '   ',
+    }, 9601)
+    assert.equal(empty.response.status, 400)
+    assert.deepEqual(empty.body, {
+      ok: false,
+      error: 'Добавьте файл или текстовое описание работы.',
+    })
+
+    const mismatch = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 3,
+      text_content: 'Auth mismatch',
+    }, 3001)
+    assert.equal(mismatch.response.status, 403)
+  })
+
+  await context.test('серия с документом и oversized-файл отклоняются', async () => {
+    const mixed = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 3,
+    }, 9601, [
+      { field: 'files', content: testImageSvg, type: 'image/svg+xml', name: 'photo.svg' },
+      { field: 'files', content: 'document', type: 'text/plain', name: 'document.txt' },
+    ])
+    assert.equal(mixed.response.status, 400)
+    assert.deepEqual(mixed.body, {
+      ok: false,
+      error: 'Несколько файлов за раз можно прикрепить только для фото. Видео или документ отправьте одним файлом (или добавьте текст к серии фото).',
+    })
+
+    const oversized = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 3,
+    }, 9601, {
+      content: 'x'.repeat(2_048),
+      type: 'text/plain',
+      name: 'large.txt',
+    })
+    assert.equal(oversized.response.status, 413)
+    assert.deepEqual(oversized.body, {
+      ok: false,
+      error: 'Файл слишком большой. Максимум 0 МБ.',
+    })
+  })
+})
+
+test('GET /api/teacher/dashboard ограничивает преподавателя назначенными учениками', async () => {
+  const { response, body } = await getJson('/api/teacher/dashboard?telegram_id=2001', 2001)
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      pendingCount: 1,
+      latest: {
+        id: fixtureIds.pendingHomeworkId,
+        student_id: fixtureIds.studentOneId,
+        student_name: 'Анна Ученица',
+        lesson_number: 2,
+        is_bonus: false,
+        haircut_name: 'Кроп',
+        created_at: '2026-09-23 12:00:00',
+      },
+      students: [
+        {
+          id: fixtureIds.studentOneId,
+          full_name: 'Анна Ученица',
+          pending_count: 1,
+          has_avatar: true,
+          telegram_id: 3001,
+          username: null,
+          first_name: 'Анна',
+          last_name: 'Ученица',
+        },
+      ],
+      lastStudents: [
+        { student_id: fixtureIds.studentOneId, student_name: 'Анна Ученица' },
+      ],
+    },
+  })
+})
+
+test('GET /api/teacher/dashboard разрешает администратору всех активных учеников', async () => {
+  const response = await fetch(`${baseUrl}/api/teacher/dashboard?telegram_id=1001`, {
+    headers: { 'X-Web-Session': testAdminWebSessionToken },
+  })
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.pendingCount, 1)
+  assert.deepEqual(body.data.students.map((student) => student.id), [fixtureIds.studentOneId])
+})
+
+test('GET /api/teacher/students возвращает назначенных учеников и рейтинг', async () => {
+  const { response, body } = await getJson('/api/teacher/students?telegram_id=2001', 2001)
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: {
+      students: [
+        {
+          id: fixtureIds.studentOneId,
+          full_name: 'Анна Ученица',
+          lessons_count: 10,
+          status: 'studying',
+          average_rating: 4.5,
+          student_track: 'intern',
+          ratings_count: 2,
+          pending_homeworks_count: 1,
+          has_avatar: true,
+          teachers: [{ id: 1, full_name: 'Ирина Преподаватель' }],
+        },
+      ],
+    },
+  })
+
+  const admin = await getJson('/api/teacher/students?telegram_id=1001', 1001)
+  assert.equal(admin.response.status, 200)
+  assert.deepEqual(
+    admin.body.data.students.map((student) => student.id).sort((left, right) => left - right),
+    [fixtureIds.studentOneId, fixtureIds.studentTwoId],
+  )
+})
+
+test('GET /api/teacher/student-homeworks по умолчанию возвращает только pending', async () => {
+  const { response, body } = await getJson(
+    `/api/teacher/student-homeworks?telegram_id=2001&student_id=${fixtureIds.studentOneId}`,
+    2001,
+  )
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.student.full_name, 'Анна Ученица')
+  assert.equal(body.data.student.average_rating, 4.5)
+  assert.equal(body.data.student.ratings_count, 2)
+  assert.deepEqual(
+    body.data.homeworks.map((homework) => homework.id),
+    [fixtureIds.pendingHomeworkId],
+  )
+})
+
+test('teacher/student-homeworks поддерживает include_reviewed и web-session', async () => {
+  const response = await fetch(
+    `${baseUrl}/api/teacher/student-homeworks?telegram_id=2001&student_id=${fixtureIds.studentOneId}&include_reviewed=true`,
+    { headers: { 'X-Web-Session': testTeacherWebSessionToken } },
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(
+    body.data.homeworks.map((homework) => homework.id),
+    [
+      fixtureIds.pendingHomeworkId,
+      fixtureIds.revisionHomeworkId,
+      fixtureIds.approvedHomeworkId,
+      fixtureIds.approvedDocumentHomeworkId,
+    ],
+  )
+  assert.equal(body.data.homeworks[2].latest_review.rating, 5)
+  assert.equal(body.data.homeworks[2].comments.length, 2)
+  assert.equal(body.data.homeworks[2].attachments.length, 2)
+})
+
+test('teacher/student-homeworks проверяет назначение, а администратор видит всех', async () => {
+  const denied = await getJson(
+    `/api/teacher/student-homeworks?telegram_id=2001&student_id=${fixtureIds.studentTwoId}`,
+    2001,
+  )
+  assert.equal(denied.response.status, 403)
+  assert.deepEqual(denied.body, {
+    ok: false,
+    error: 'Ученик не прикреплён к этому преподавателю.',
+  })
+
+  const admin = await getJson(
+    `/api/teacher/student-homeworks?telegram_id=1001&student_id=${fixtureIds.studentTwoId}&include_reviewed=true`,
+    1001,
+  )
+  assert.equal(admin.response.status, 200)
+  assert.deepEqual(
+    admin.body.data.homeworks.map((homework) => homework.id),
+    [fixtureIds.secondStudentHomeworkId],
+  )
+})
+
+test('кабинет преподавателя сохраняет validation, auth и role ошибки', async (context) => {
+  await context.test('student_id проверяется до credential', async () => {
+    const { response } = await getJson(
+      '/api/teacher/student-homeworks?telegram_id=2001&student_id=invalid',
+    )
+    assert.equal(response.status, 400)
+  })
+
+  await context.test('нет credential', async () => {
+    const { response } = await getJson('/api/teacher/dashboard?telegram_id=2001')
+    assert.equal(response.status, 401)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const { response, body } = await getJson('/api/teacher/dashboard?telegram_id=9999', 9999)
+    assert.equal(response.status, 404)
+    assert.deepEqual(body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не преподаватель', async () => {
+    const { response, body } = await getJson('/api/teacher/dashboard?telegram_id=3001', 3001)
+    assert.equal(response.status, 403)
+    assert.deepEqual(body, { ok: false, error: 'Доступ только для преподавателей.' })
   })
 })
 
@@ -1481,6 +2046,386 @@ test('POST /api/teacher/about сохраняет validation, auth и role оши
   }
 })
 
+test('POST /api/teacher-application создаёт пользователя, заменяет pending-заявку и уведомляет админа', async () => {
+  const telegramId = 9501
+  const first = await postJson('/api/teacher-application', {
+    telegram_id: telegramId,
+    full_name: '  Павел   Первый  ',
+    phone: ' +7 999 000 00 01 ',
+  }, telegramId)
+  assert.equal(first.response.status, 200)
+  assert.deepEqual(first.body, { ok: true })
+
+  let db = new Database(legacyDatabasePath, { readonly: true })
+  const user = db.prepare(`
+    SELECT id, telegram_id, first_name, last_name, role, vk_user_id
+    FROM users WHERE telegram_id = ?
+  `).get(telegramId)
+  assert.deepEqual(user, {
+    id: user.id,
+    telegram_id: telegramId,
+    first_name: 'Павел',
+    last_name: 'Первый',
+    role: 'guest',
+    vk_user_id: null,
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ?
+  `).all(user.id), [{ role: 'guest' }])
+  const firstApplication = db.prepare(`
+    SELECT id, full_name, phone, status
+    FROM teacher_applications WHERE applicant_user_id = ?
+  `).get(user.id)
+  assert.deepEqual(firstApplication, {
+    id: firstApplication.id,
+    full_name: 'Павел   Первый',
+    phone: '+79990000001',
+    status: 'pending',
+  })
+  db.close()
+
+  const second = await postJson('/api/teacher-application', {
+    telegram_id: telegramId,
+    full_name: 'Пётр Второй',
+    phone: '89990000002',
+  }, telegramId)
+  assert.equal(second.response.status, 200)
+  assert.deepEqual(second.body, { ok: true })
+
+  db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT first_name, last_name FROM users WHERE id = ?
+  `).get(user.id), { first_name: 'Пётр', last_name: 'Второй' })
+  const applications = db.prepare(`
+    SELECT id, full_name, phone, status
+    FROM teacher_applications WHERE applicant_user_id = ?
+  `).all(user.id)
+  assert.equal(applications.length, 1)
+  assert.notEqual(applications[0].id, firstApplication.id)
+  assert.deepEqual(applications[0], {
+    id: applications[0].id,
+    full_name: 'Пётр Второй',
+    phone: '89990000002',
+    status: 'pending',
+  })
+  const message = `Заявка на роль преподавателя (мини-апп):\nПётр Второй\nТелефон: 89990000002\nID в приложении: ${telegramId}`
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT id FROM users WHERE telegram_id = 1001)
+      AND kind = 'teacher_application'
+    ORDER BY id DESC LIMIT 1
+  `).get(), {
+    kind: 'teacher_application',
+    body: message,
+    payload: JSON.stringify({
+      source: 'mini_app',
+      telegram_id: telegramId,
+      full_name: 'Пётр Второй',
+      applicant_user_id: user.id,
+    }),
+  })
+  db.close()
+  removeTeacherApplicationSubmission(telegramId)
+})
+
+test('POST /api/teacher-application создаёт VK identity с реальным vk_user_id', async () => {
+  const vkUserId = 9502
+  const claimedTelegramId = 10_000_000_000 + vkUserId
+  const response = await fetch(`${baseUrl}/api/teacher-application`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Client-Platform': 'vk',
+      'X-VK-User-Id': String(vkUserId),
+      'X-App-User-Id': String(claimedTelegramId),
+      'X-VK-Launch-Params': buildVkLaunchParams(vkUserId),
+    },
+    body: JSON.stringify({
+      telegram_id: claimedTelegramId,
+      full_name: 'Виктор Кандидат',
+      phone: '+79990000003',
+    }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT telegram_id, vk_user_id, first_name, last_name
+    FROM users WHERE telegram_id = ?
+  `).get(claimedTelegramId), {
+    telegram_id: claimedTelegramId,
+    vk_user_id: vkUserId,
+    first_name: 'Виктор',
+    last_name: 'Кандидат',
+  })
+  db.close()
+  removeTeacherApplicationSubmission(claimedTelegramId)
+})
+
+test('POST /api/teacher-application сохраняет validation и auth ошибки', async (context) => {
+  const valid = {
+    telegram_id: 9503,
+    full_name: 'Новый Кандидат',
+    phone: '+79990000004',
+  }
+  await context.test('schema проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, full_name: 'Я' },
+      { ...valid, phone: '1234' },
+      { ...valid, full_name: null },
+    ]) {
+      const result = await postJson('/api/teacher-application', payload)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  await context.test('domain validation выполняется после credential', async () => {
+    const invalidPhone = await postJson('/api/teacher-application', {
+      ...valid,
+      phone: 'номер телефона',
+    }, valid.telegram_id)
+    assert.equal(invalidPhone.response.status, 400)
+    assert.deepEqual(invalidPhone.body, {
+      ok: false,
+      error: 'Укажите корректный номер телефона.',
+    })
+
+    const emptyName = await postJson('/api/teacher-application', {
+      ...valid,
+      full_name: '  ',
+    }, valid.telegram_id)
+    assert.equal(emptyName.response.status, 400)
+    assert.deepEqual(emptyName.body, { ok: false, error: 'Укажите ФИО.' })
+  })
+  await context.test('нет credential', async () => {
+    assert.equal(
+      (await postJson('/api/teacher-application', valid)).response.status,
+      401,
+    )
+  })
+  await context.test('credential не совпадает', async () => {
+    assert.equal(
+      (await postJson('/api/teacher-application', valid, 9504)).response.status,
+      403,
+    )
+  })
+})
+
+test('POST /api/students создаёт заявку, роль и уведомление администратора', async () => {
+  const telegramId = 9510
+  const result = await postJson('/api/students', {
+    telegram_id: telegramId,
+    full_name: '  Анна   Новая  ',
+    phone: ' +7 999 100 20 30 ',
+    lessons_count: '12,0',
+    username: 'anna_new',
+    first_name: 'Не используется',
+    last_name: 'Тоже не используется',
+    metro: '  Тверская  ',
+  }, telegramId)
+
+  assert.equal(result.response.status, 201)
+  const studentId = result.body.data.student.id
+  assert.deepEqual(result.body, {
+    ok: true,
+    data: {
+      student: {
+        id: studentId,
+        full_name: 'Анна   Новая',
+        phone: '+79991002030',
+        lessons_count: 12,
+        status: 'moderation',
+      },
+      role: 'student',
+      roles: ['guest', 'student'],
+    },
+  })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const user = db.prepare(`
+    SELECT id, username, first_name, last_name, role
+    FROM users WHERE telegram_id = ?
+  `).get(telegramId)
+  assert.deepEqual(user, {
+    id: user.id,
+    username: 'anna_new',
+    first_name: 'Анна',
+    last_name: 'Новая',
+    role: 'guest',
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ? ORDER BY role
+  `).all(user.id), [{ role: 'guest' }, { role: 'student' }])
+  assert.deepEqual(db.prepare(`
+    SELECT id, user_id, full_name, phone, lessons_count, status, metro
+    FROM students WHERE user_id = ?
+  `).get(user.id), {
+    id: studentId,
+    user_id: user.id,
+    full_name: 'Анна   Новая',
+    phone: '+79991002030',
+    lessons_count: 12,
+    status: 'moderation',
+    metro: 'Тверская',
+  })
+  const adminMessage = `Новый ученик из мини-аппа:\nАнна   Новая\nТелефон: +79991002030\nМетро: Тверская\nЗанятий: 12\n\nID в Telegram: ${telegramId}`
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT id FROM users WHERE telegram_id = 1001)
+      AND kind = 'new_student'
+    ORDER BY id DESC LIMIT 1
+  `).get(), {
+    kind: 'new_student',
+    body: adminMessage,
+    payload: JSON.stringify({
+      source: 'mini_app',
+      telegram_id: telegramId,
+      full_name: 'Анна   Новая',
+    }),
+  })
+  db.close()
+
+  const duplicate = await postJson('/api/students', {
+    telegram_id: telegramId,
+    full_name: 'Анна Новая',
+    phone: '+79991002030',
+    lessons_count: 12,
+  }, telegramId)
+  assert.equal(duplicate.response.status, 409)
+  assert.deepEqual(duplicate.body, {
+    ok: false,
+    error: 'Заявка уже существует.',
+    data: {
+      student: {
+        id: studentId,
+        user_id: user.id,
+        full_name: 'Анна   Новая',
+        phone: '+79991002030',
+        lessons_count: 12,
+        status: 'moderation',
+        created_at: duplicate.body.data.student.created_at,
+        updated_at: duplicate.body.data.student.updated_at,
+        student_track: 'student',
+        metro: 'Тверская',
+        avatar_file_id: null,
+        about_me: null,
+        telegram_id: telegramId,
+        username: 'anna_new',
+        first_name: 'Анна',
+        last_name: 'Новая',
+      },
+    },
+  })
+})
+
+test('POST /api/students сохраняет порядок schema, auth и domain validation', async (context) => {
+  const valid = {
+    telegram_id: 9511,
+    full_name: 'Новый Ученик',
+    phone: '+79991002031',
+    lessons_count: 10,
+  }
+  await context.test('schema проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, full_name: null },
+      { ...valid, lessons_count: null },
+      { ...valid, phone: 79991002031 },
+    ]) {
+      const result = await postJson('/api/students', payload)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  assert.equal((await postJson('/api/students', valid)).response.status, 401)
+  assert.equal((await postJson('/api/students', valid, 9512)).response.status, 403)
+
+  for (const [patch, error] of [
+    [{ full_name: '   ', phone: 'invalid', lessons_count: 0 }, 'Укажите ФИО ученика.'],
+    [{ phone: 'invalid', lessons_count: 0 }, 'Укажите корректный номер телефона.'],
+    [{ lessons_count: '2.5' }, 'Количество занятий должно быть целым числом больше нуля.'],
+  ]) {
+    const result = await postJson('/api/students', { ...valid, ...patch }, valid.telegram_id)
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, { ok: false, error })
+  }
+})
+
+test('POST /api/student/feedback сохраняет приватный отзыв идемпотентно', async () => {
+  const requestKey = '11111111-1111-4111-8111-111111111111'
+  const payload = {
+    telegram_id: 3001,
+    subject: 'academy',
+    message: '  Полезный отзыв  ',
+    request_key: requestKey,
+  }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await postJson('/api/student/feedback', payload, 3001)
+    assert.equal(result.response.status, 200)
+    assert.deepEqual(result.body, { ok: true })
+  }
+
+  const db = new Database(legacyDatabasePath)
+  assert.deepEqual(db.prepare(`
+    SELECT student_id, request_key, subject, message
+    FROM private_feedback WHERE student_id = ? AND request_key = ?
+  `).get(fixtureIds.studentOneId, requestKey), {
+    student_id: fixtureIds.studentOneId,
+    request_key: requestKey,
+    subject: 'academy',
+    message: 'Полезный отзыв',
+  })
+  const count = db.prepare(`
+    SELECT COUNT(*) AS count FROM private_feedback
+    WHERE student_id = ? AND request_key = ?
+  `).get(fixtureIds.studentOneId, requestKey)
+  assert.equal(count.count, 1)
+  db.prepare(`
+    DELETE FROM private_feedback WHERE student_id = ? AND request_key = ?
+  `).run(fixtureIds.studentOneId, requestKey)
+  db.close()
+})
+
+test('POST /api/student/feedback сохраняет validation, auth и student-доступ', async () => {
+  const valid = {
+    telegram_id: 3001,
+    subject: 'teacher',
+    message: 'Отзыв',
+    request_key: '22222222-2222-4222-8222-222222222222',
+  }
+  for (const payload of [
+    { ...valid, subject: 'unknown' },
+    { ...valid, message: '   ' },
+    { ...valid, message: 'x'.repeat(4001) },
+    { ...valid, request_key: 'not-a-uuid' },
+  ]) {
+    const result = await postJson('/api/student/feedback', payload)
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Некорректные параметры запроса.',
+    })
+  }
+  assert.equal((await postJson('/api/student/feedback', valid)).response.status, 401)
+  assert.equal((await postJson('/api/student/feedback', valid, 3002)).response.status, 403)
+
+  const forbidden = await postJson('/api/student/feedback', {
+    ...valid,
+    telegram_id: 2001,
+  }, 2001)
+  assert.equal(forbidden.response.status, 403)
+  assert.deepEqual(forbidden.body, {
+    ok: false,
+    error: 'Обратная связь доступна только ученику.',
+  })
+})
+
 test('GET /api/admin/teacher-applications возвращает только pending-заявки', async () => {
   const { response, body } = await getJson('/api/admin/teacher-applications?telegram_id=1001', 1001)
   assert.equal(response.status, 200)
@@ -1495,6 +2440,176 @@ test('GET /api/admin/teacher-applications возвращает только pend
         created_at: '2026-09-23 10:00:00',
       }],
     },
+  })
+})
+
+test('POST /api/admin/teacher-applications одобряет нового преподавателя', async () => {
+  const target = createTeacherApplicationFixture({ telegramId: 9401 })
+  const { response, body } = await postJson('/api/admin/teacher-applications', {
+    telegram_id: 1001,
+    application_id: String(target.applicationId),
+    action: 'approve',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true, data: { status: 'approved' } })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT status FROM teacher_applications WHERE id = ?
+  `).get(target.applicationId), { status: 'approved' })
+  assert.deepEqual(db.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ? AND role = 'teacher'
+  `).get(target.userId), { role: 'teacher' })
+  assert.deepEqual(db.prepare(`
+    SELECT full_name FROM teachers WHERE user_id = ?
+  `).get(target.userId), { full_name: 'Кандидат Преподаватель' })
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'teacher_application_approved',
+    meta: JSON.stringify({ application_id: target.applicationId, user_id: target.userId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.userId), {
+    kind: 'teacher_application_result',
+    body: 'Ваша заявка на роль преподавателя одобрена. Откройте мини-приложение снова — доступ «Преподаватель» должен появиться после проверки сессии.',
+    payload: JSON.stringify({ application_id: target.applicationId }),
+  })
+  db.close()
+  removeTeacherApplicationFixture(target)
+})
+
+test('POST /api/admin/teacher-applications отклоняет заявку без уведомления', async () => {
+  const target = createTeacherApplicationFixture({ telegramId: 9402 })
+  const dbBefore = new Database(legacyDatabasePath, { readonly: true })
+  const notificationCountBefore = dbBefore.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(target.userId).count
+  dbBefore.close()
+
+  const { response, body } = await postJson('/api/admin/teacher-applications', {
+    telegram_id: 1001,
+    application_id: target.applicationId,
+    action: 'reject',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true, data: { status: 'rejected' } })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT status FROM teacher_applications WHERE id = ?
+  `).get(target.applicationId), { status: 'rejected' })
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'teacher_application_rejected',
+    meta: JSON.stringify({ application_id: target.applicationId }),
+  })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(target.userId).count, notificationCountBefore)
+  db.close()
+  removeTeacherApplicationFixture(target)
+})
+
+test('POST /api/admin/teacher-applications сохраняет ветку already_teacher', async () => {
+  const target = createTeacherApplicationFixture({
+    telegramId: 9403,
+    existingTeacher: true,
+  })
+  const dbBefore = new Database(legacyDatabasePath, { readonly: true })
+  const auditCountBefore = dbBefore.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+  `).get().count
+  dbBefore.close()
+
+  const { response, body } = await postJson('/api/admin/teacher-applications', {
+    telegram_id: 1001,
+    application_id: target.applicationId,
+    action: 'approve',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: { status: 'approved', already_teacher: true },
+  })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT status FROM teacher_applications WHERE id = ?
+  `).get(target.applicationId), { status: 'approved' })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+  `).get().count, auditCountBefore)
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(target.userId).count, 0)
+  db.close()
+  removeTeacherApplicationFixture(target)
+})
+
+test('POST /api/admin/teacher-applications сохраняет validation, auth и domain-ошибки', async (context) => {
+  const valid = {
+    telegram_id: 1001,
+    application_id: 999999,
+    action: 'approve',
+  }
+  await context.test('body проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, application_id: 0 },
+      { ...valid, application_id: 'nope' },
+      { ...valid, action: 'archive' },
+    ]) {
+      const result = await postJson('/api/admin/teacher-applications', payload)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  await context.test('нет credential', async () => {
+    assert.equal(
+      (await postJson('/api/admin/teacher-applications', valid)).response.status,
+      401,
+    )
+  })
+  await context.test('credential не совпадает', async () => {
+    assert.equal(
+      (await postJson('/api/admin/teacher-applications', valid, 3001)).response.status,
+      403,
+    )
+  })
+  await context.test('пользователь не администратор', async () => {
+    const result = await postJson('/api/admin/teacher-applications', {
+      ...valid,
+      telegram_id: 3001,
+    }, 3001)
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Доступ только для администраторов.',
+    })
+  })
+  await context.test('заявка отсутствует или обработана', async () => {
+    const processed = createTeacherApplicationFixture({
+      telegramId: 9404,
+      status: 'rejected',
+    })
+    for (const applicationId of [999999, processed.applicationId]) {
+      const result = await postJson('/api/admin/teacher-applications', {
+        ...valid,
+        application_id: applicationId,
+      }, 1001)
+      assert.equal(result.response.status, 404)
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: 'Заявка не найдена или уже обработана.',
+      })
+    }
+    removeTeacherApplicationFixture(processed)
   })
 })
 
@@ -1679,6 +2794,649 @@ test('административные GET сохраняют validation, auth, 
     const { response, body } = await getJson('/api/admin/student/999999?telegram_id=1001', 1001)
     assert.equal(response.status, 404)
     assert.deepEqual(body, { ok: false, error: 'Ученик не найден.' })
+  })
+})
+
+test('POST /api/admin/students выполняет модерацию, назначения и уведомления', async () => {
+  const target = createModerationStudent()
+  const actions = [
+    {
+      body: {
+        telegram_id: 1001,
+        student_id: target.studentId,
+        action: 'approve',
+        teacher_ids: [1, 1],
+      },
+      status: 'studying',
+      audit: 'admin_student_approve',
+      message: '🎉 Ваша заявка одобрена! Теперь вы можете сдавать домашние задания.',
+    },
+    {
+      body: {
+        telegram_id: 1001,
+        student_id: target.studentId,
+        action: 'set_completed',
+        teacher_ids: [999999],
+      },
+      status: 'completed',
+      audit: 'admin_student_set_completed',
+      message: 'Ваш статус обучения обновлен: завершил обучение.',
+    },
+    {
+      body: { telegram_id: 1001, student_id: target.studentId, action: 'set_studying' },
+      status: 'studying',
+      audit: 'admin_student_set_studying',
+      message: 'Ваш статус обучения обновлен: обучается.',
+    },
+    {
+      body: { telegram_id: 1001, student_id: target.studentId, action: 'reject' },
+      status: 'rejected',
+      audit: 'admin_student_reject',
+      message: 'К сожалению, ваша заявка была отклонена.',
+    },
+  ]
+
+  for (const expected of actions) {
+    const { response, body } = await postJson('/api/admin/students', expected.body, 1001)
+    assert.equal(response.status, 200)
+    assert.deepEqual(body, { ok: true })
+
+    const db = new Database(legacyDatabasePath, { readonly: true })
+    const student = db.prepare('SELECT status FROM students WHERE id = ?').get(target.studentId)
+    const audit = db.prepare(`
+      SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+    `).get()
+    const notification = db.prepare(`
+      SELECT kind, body, payload FROM app_notifications
+      WHERE user_id = ? ORDER BY id DESC LIMIT 1
+    `).get(target.userId)
+    db.close()
+
+    assert.equal(student.status, expected.status)
+    assert.deepEqual(audit, {
+      action: expected.audit,
+      meta: JSON.stringify({ student_id: target.studentId, status: expected.status }),
+    })
+    assert.deepEqual(notification, {
+      kind: 'student_status',
+      body: expected.message,
+      payload: JSON.stringify({
+        action: expected.body.action,
+        student_id: target.studentId,
+      }),
+    })
+  }
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const assignments = db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ? ORDER BY teacher_id
+  `).all(target.studentId)
+  db.close()
+  assert.deepEqual(assignments, [{ teacher_id: 1 }])
+})
+
+test('POST /api/admin/students сохраняет validation, auth и domain-ошибки', async (context) => {
+  const validBody = { telegram_id: 1001, student_id: 999999, action: 'approve' }
+
+  await context.test('body проверяется до credential', async () => {
+    for (const body of [
+      { ...validBody, student_id: 0 },
+      { ...validBody, action: 'archive' },
+      { ...validBody, teacher_ids: null },
+      { ...validBody, teacher_ids: [0] },
+      { ...validBody, teacher_ids: Array.from({ length: 81 }, (_, index) => index + 1) },
+    ]) {
+      const result = await postJson('/api/admin/students', body)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+
+  await context.test('нет credential', async () => {
+    const result = await postJson('/api/admin/students', validBody)
+    assert.equal(result.response.status, 401)
+  })
+
+  await context.test('credential не совпадает', async () => {
+    const result = await postJson('/api/admin/students', validBody, 3001)
+    assert.equal(result.response.status, 403)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const result = await postJson(
+      '/api/admin/students',
+      { telegram_id: 9999, student_id: 999999, action: 'approve' },
+      9999,
+    )
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не администратор', async () => {
+    const result = await postJson(
+      '/api/admin/students',
+      { telegram_id: 3001, student_id: 999999, action: 'approve' },
+      3001,
+    )
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Доступ только для администраторов.',
+    })
+  })
+
+  await context.test('ученик не найден', async () => {
+    const result = await postJson('/api/admin/students', validBody, 1001)
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Ученик не найден.' })
+  })
+
+  await context.test('преподаватель для approve не найден', async () => {
+    const target = createModerationStudent(9900)
+    const result = await postJson(
+      '/api/admin/students',
+      {
+        telegram_id: 1001,
+        student_id: target.studentId,
+        action: 'approve',
+        teacher_ids: [999999],
+      },
+      1001,
+    )
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Преподаватель с id 999999 не найден.',
+    })
+
+    const db = new Database(legacyDatabasePath, { readonly: true })
+    const student = db.prepare('SELECT status FROM students WHERE id = ?').get(target.studentId)
+    const assignments = db.prepare(`
+      SELECT teacher_id FROM student_teachers WHERE student_id = ?
+    `).all(target.studentId)
+    db.close()
+    assert.equal(student.status, 'moderation')
+    assert.deepEqual(assignments, [])
+  })
+})
+
+test('POST /api/admin/teachers назначает роль, создаёт профиль и уведомляет', async () => {
+  const targetTelegramId = 9101
+  const db = new Database(legacyDatabasePath)
+  const targetUserId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, 'Новый', 'Преподаватель', 'guest')
+  `).run(targetTelegramId).lastInsertRowid)
+  db.close()
+
+  const { response, body } = await postJson('/api/admin/teachers', {
+    telegram_id: 1001,
+    target_telegram_id: String(targetTelegramId),
+    action: 'assign',
+    full_name: '  Контрактный Преподаватель  ',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const verification = new Database(legacyDatabasePath, { readonly: true })
+  const role = verification.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ? AND role = 'teacher'
+  `).get(targetUserId)
+  const teacher = verification.prepare(`
+    SELECT id, full_name FROM teachers WHERE user_id = ?
+  `).get(targetUserId)
+  const audit = verification.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get()
+  const notification = verification.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(targetUserId)
+  verification.close()
+
+  assert.deepEqual(role, { role: 'teacher' })
+  assert.equal(teacher.full_name, 'Контрактный Преподаватель')
+  assert.deepEqual(audit, {
+    action: 'admin_teacher_assign',
+    meta: JSON.stringify({ target_telegram_id: targetTelegramId }),
+  })
+  assert.deepEqual(notification, {
+    kind: 'teacher_role_assigned',
+    body: 'Вам назначена роль преподавателя. Откройте мини-приложение для проверки работ.',
+    payload: '{}',
+  })
+})
+
+test('legacy SEC-003: снятие роли удаляет профиль и исторические проверки', async () => {
+  const targetTelegramId = 9101
+  const db = new Database(legacyDatabasePath)
+  const target = db.prepare(`
+    SELECT u.id AS user_id, t.id AS teacher_id
+    FROM users u JOIN teachers t ON t.user_id = u.id
+    WHERE u.telegram_id = ?
+  `).get(targetTelegramId)
+  db.prepare(`
+    INSERT INTO student_teachers (student_id, teacher_id) VALUES (?, ?)
+  `).run(fixtureIds.studentOneId, target.teacher_id)
+  const reviewId = Number(db.prepare(`
+    INSERT INTO homework_reviews
+      (homework_id, teacher_id, rating, comment, status)
+    VALUES (?, ?, 5, 'Историческая проверка', 'approved')
+  `).run(fixtureIds.approvedHomeworkId, target.teacher_id).lastInsertRowid)
+  db.close()
+
+  const { response, body } = await postJson('/api/admin/teachers', {
+    telegram_id: 1001,
+    target_telegram_id: targetTelegramId,
+    action: 'remove',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const verification = new Database(legacyDatabasePath, { readonly: true })
+  const role = verification.prepare(`
+    SELECT 1 FROM user_roles WHERE user_id = ? AND role = 'teacher'
+  `).get(target.user_id)
+  const teacher = verification.prepare('SELECT 1 FROM teachers WHERE id = ?')
+    .get(target.teacher_id)
+  const assignment = verification.prepare(`
+    SELECT 1 FROM student_teachers WHERE teacher_id = ?
+  `).get(target.teacher_id)
+  const review = verification.prepare('SELECT 1 FROM homework_reviews WHERE id = ?')
+    .get(reviewId)
+  verification.close()
+
+  assert.equal(role, undefined)
+  assert.equal(teacher, undefined)
+  assert.equal(assignment, undefined)
+  assert.equal(review, undefined)
+})
+
+test('POST /api/admin/teachers сохраняет validation, auth и domain-ошибки', async (context) => {
+  const validBody = {
+    telegram_id: 1001,
+    target_telegram_id: 9999,
+    action: 'assign',
+  }
+
+  await context.test('body проверяется до credential', async () => {
+    for (const body of [
+      { ...validBody, target_telegram_id: 0 },
+      { ...validBody, action: 'archive' },
+      { ...validBody, full_name: null },
+    ]) {
+      const result = await postJson('/api/admin/teachers', body)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+  await context.test('нет credential', async () => {
+    assert.equal((await postJson('/api/admin/teachers', validBody)).response.status, 401)
+  })
+  await context.test('credential не совпадает', async () => {
+    assert.equal((await postJson('/api/admin/teachers', validBody, 3001)).response.status, 403)
+  })
+  await context.test('пользователь не администратор', async () => {
+    const result = await postJson('/api/admin/teachers', {
+      telegram_id: 3001,
+      target_telegram_id: 9999,
+      action: 'assign',
+    }, 3001)
+    assert.equal(result.response.status, 403)
+  })
+  await context.test('целевой пользователь не найден', async () => {
+    const result = await postJson('/api/admin/teachers', validBody, 1001)
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Пользователь не найден. Попросите его отправить /start боту.',
+    })
+  })
+})
+
+test('POST admin/assign-student и unassign-student меняют связь и создают побочные эффекты', async () => {
+  const target = createAssignmentFixture()
+  const assignmentBody = {
+    telegram_id: 1001,
+    teacher_id: target.teacherId,
+    student_id: target.studentId,
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { response, body } = await postJson(
+      '/api/admin/assign-student',
+      assignmentBody,
+      1001,
+    )
+    assert.equal(response.status, 200)
+    assert.deepEqual(body, { ok: true })
+  }
+
+  let db = new Database(legacyDatabasePath, { readonly: true })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(target.studentId, target.teacherId).count, 1)
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_assign_student',
+    meta: JSON.stringify({ teacher_id: target.teacherId, student_id: target.studentId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.teacherUserId), {
+    kind: 'student_assigned',
+    body: 'К вам прикреплён ученик: Новый Подопечный.',
+    payload: JSON.stringify({ student_id: target.studentId, teacher_id: target.teacherId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.studentUserId), {
+    kind: 'teacher_assigned',
+    body: 'Вас прикрепили к преподавателю: Новый Наставник.',
+    payload: JSON.stringify({ student_id: target.studentId, teacher_id: target.teacherId }),
+  })
+  db.close()
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { response, body } = await postJson(
+      '/api/admin/unassign-student',
+      assignmentBody,
+      1001,
+    )
+    assert.equal(response.status, 200)
+    assert.deepEqual(body, { ok: true })
+  }
+
+  db = new Database(legacyDatabasePath, { readonly: true })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(target.studentId, target.teacherId).count, 0)
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_unassign_student',
+    meta: JSON.stringify({ teacher_id: target.teacherId, student_id: target.studentId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.teacherUserId), {
+    kind: 'student_unassigned',
+    body: 'Ученик Новый Подопечный снят с вашего ведения.',
+    payload: JSON.stringify({ student_id: target.studentId, teacher_id: target.teacherId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.studentUserId), {
+    kind: 'teacher_unassigned',
+    body: 'Преподаватель Новый Наставник снят с вашего обучения.',
+    payload: JSON.stringify({ student_id: target.studentId, teacher_id: target.teacherId }),
+  })
+  db.close()
+
+  const cleanup = new Database(legacyDatabasePath)
+  cleanup.prepare('DELETE FROM users WHERE id IN (?, ?)')
+    .run(target.teacherUserId, target.studentUserId)
+  cleanup.close()
+})
+
+test('POST admin/assign-student сохраняет запрет связи для уровня barber', async () => {
+  const target = createAssignmentFixture({
+    teacherTelegramId: 9211,
+    studentTelegramId: 9212,
+    studentTrack: 'barber',
+  })
+  const { response, body } = await postJson('/api/admin/assign-student', {
+    telegram_id: 1001,
+    teacher_id: target.teacherId,
+    student_id: target.studentId,
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(target.studentId, target.teacherId).count, 0)
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications
+    WHERE user_id IN (?, ?) AND kind IN ('student_assigned', 'teacher_assigned')
+  `).get(target.teacherUserId, target.studentUserId).count, 2)
+  db.close()
+
+  const cleanup = new Database(legacyDatabasePath)
+  cleanup.prepare('DELETE FROM users WHERE id IN (?, ?)')
+    .run(target.teacherUserId, target.studentUserId)
+  cleanup.close()
+})
+
+test('POST admin assignment сохраняет validation, auth и not-found ошибки', async (context) => {
+  const validBody = { telegram_id: 1001, teacher_id: 999999, student_id: 999999 }
+  for (const path of ['/api/admin/assign-student', '/api/admin/unassign-student']) {
+    await context.test(`${path}: body до credential`, async () => {
+      for (const body of [
+        { ...validBody, teacher_id: 0 },
+        { ...validBody, student_id: 'nope' },
+      ]) {
+        const result = await postJson(path, body)
+        assert.equal(result.response.status, 400)
+        assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+      }
+    })
+    await context.test(`${path}: нет credential`, async () => {
+      assert.equal((await postJson(path, validBody)).response.status, 401)
+    })
+    await context.test(`${path}: пользователь не администратор`, async () => {
+      const result = await postJson(path, {
+        telegram_id: 3001,
+        teacher_id: 999999,
+        student_id: 999999,
+      }, 3001)
+      assert.equal(result.response.status, 403)
+    })
+  }
+
+  const missingTeacher = await postJson('/api/admin/assign-student', validBody, 1001)
+  assert.equal(missingTeacher.response.status, 404)
+  assert.deepEqual(missingTeacher.body, { ok: false, error: 'Преподаватель не найден.' })
+
+  const missingPair = await postJson('/api/admin/unassign-student', validBody, 1001)
+  assert.equal(missingPair.response.status, 404)
+  assert.deepEqual(missingPair.body, { ok: false, error: 'Преподаватель или ученик не найден.' })
+})
+
+test('POST /api/admin/update-student обновляет поля и полностью заменяет назначения', async () => {
+  const target = createUpdateStudentFixture()
+  const { response, body } = await postJson('/api/admin/update-student', {
+    telegram_id: 1001,
+    student_id: String(target.studentId),
+    lessons_count: '12',
+    student_track: 'intern',
+    teacher_ids: [String(target.teacherId), target.teacherId],
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  let db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT lessons_count, student_track FROM students WHERE id = ?
+  `).get(target.studentId), { lessons_count: 12, student_track: 'intern' })
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ? ORDER BY teacher_id
+  `).all(target.studentId), [{ teacher_id: target.teacherId }])
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_update_student',
+    meta: JSON.stringify({
+      student_id: target.studentId,
+      lessons_count: 12,
+      student_track: 'intern',
+      teacher_ids: [target.teacherId, target.teacherId],
+    }),
+  })
+  db.close()
+
+  const clear = await postJson('/api/admin/update-student', {
+    telegram_id: 1001,
+    student_id: target.studentId,
+    teacher_ids: [],
+  }, 1001)
+  assert.equal(clear.response.status, 200)
+  assert.deepEqual(clear.body, { ok: true })
+
+  db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ?
+  `).all(target.studentId), [])
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_update_student',
+    meta: JSON.stringify({
+      student_id: target.studentId,
+      lessons_count: null,
+      student_track: null,
+      teacher_ids: [],
+    }),
+  })
+  db.close()
+
+  const cleanup = new Database(legacyDatabasePath)
+  cleanup.prepare('DELETE FROM users WHERE id = ?').run(target.userId)
+  cleanup.close()
+})
+
+test('POST /api/admin/update-student снимает назначения при уровне barber', async () => {
+  const target = createUpdateStudentFixture({ telegramId: 9302 })
+  const { response, body } = await postJson('/api/admin/update-student', {
+    telegram_id: 1001,
+    student_id: target.studentId,
+    student_track: 'barber',
+    teacher_ids: [target.teacherId],
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.equal(db.prepare(`
+    SELECT student_track FROM students WHERE id = ?
+  `).get(target.studentId).student_track, 'barber')
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ?
+  `).all(target.studentId), [])
+  db.close()
+
+  const cleanup = new Database(legacyDatabasePath)
+  cleanup.prepare('DELETE FROM users WHERE id = ?').run(target.userId)
+  cleanup.close()
+})
+
+test('legacy BUG-003: update-student оставляет частичное обновление перед domain-ошибкой', async () => {
+  const invalidTeacherTarget = createUpdateStudentFixture({ telegramId: 9303 })
+  const invalidTeacher = await postJson('/api/admin/update-student', {
+    telegram_id: 1001,
+    student_id: invalidTeacherTarget.studentId,
+    lessons_count: 8,
+    student_track: 'intern',
+    teacher_ids: [999999],
+  }, 1001)
+  assert.equal(invalidTeacher.response.status, 400)
+  assert.deepEqual(invalidTeacher.body, {
+    ok: false,
+    error: 'Преподаватель с id 999999 не найден.',
+  })
+
+  const moderationTarget = createUpdateStudentFixture({
+    telegramId: 9304,
+    status: 'moderation',
+  })
+  const invalidStatus = await postJson('/api/admin/update-student', {
+    telegram_id: 1001,
+    student_id: moderationTarget.studentId,
+    lessons_count: 9,
+    student_track: 'barber',
+    teacher_ids: [moderationTarget.teacherId],
+  }, 1001)
+  assert.equal(invalidStatus.response.status, 400)
+  assert.deepEqual(invalidStatus.body, {
+    ok: false,
+    error: 'Назначать преподавателей можно только при статусе «обучается» или «завершил».',
+  })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT lessons_count, student_track FROM students WHERE id = ?
+  `).get(invalidTeacherTarget.studentId), {
+    lessons_count: 8,
+    student_track: 'intern',
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ?
+  `).all(invalidTeacherTarget.studentId), [{ teacher_id: invalidTeacherTarget.teacherId }])
+  assert.deepEqual(db.prepare(`
+    SELECT lessons_count, student_track FROM students WHERE id = ?
+  `).get(moderationTarget.studentId), {
+    lessons_count: 9,
+    student_track: 'barber',
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT teacher_id FROM student_teachers WHERE student_id = ?
+  `).all(moderationTarget.studentId), [])
+  const audits = db.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+    WHERE action = 'admin_update_student'
+      AND json_extract(meta, '$.student_id') IN (?, ?)
+  `).get(invalidTeacherTarget.studentId, moderationTarget.studentId)
+  assert.equal(audits.count, 0)
+  db.close()
+
+  const cleanup = new Database(legacyDatabasePath)
+  cleanup.prepare('DELETE FROM users WHERE id IN (?, ?)')
+    .run(invalidTeacherTarget.userId, moderationTarget.userId)
+  cleanup.close()
+})
+
+test('POST /api/admin/update-student сохраняет validation, auth и not-found ошибки', async (context) => {
+  const validBody = { telegram_id: 1001, student_id: 999999 }
+  await context.test('body проверяется до credential', async () => {
+    for (const body of [
+      { ...validBody, student_id: 0 },
+      { ...validBody, lessons_count: -1 },
+      { ...validBody, lessons_count: 1.5 },
+      { ...validBody, student_track: 'master' },
+      { ...validBody, teacher_ids: null },
+      { ...validBody, teacher_ids: [0] },
+    ]) {
+      const result = await postJson('/api/admin/update-student', body)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+  await context.test('нет credential', async () => {
+    assert.equal((await postJson('/api/admin/update-student', validBody)).response.status, 401)
+  })
+  await context.test('credential не совпадает', async () => {
+    assert.equal((await postJson('/api/admin/update-student', validBody, 3001)).response.status, 403)
+  })
+  await context.test('пользователь не администратор', async () => {
+    const result = await postJson('/api/admin/update-student', {
+      telegram_id: 3001,
+      student_id: 999999,
+    }, 3001)
+    assert.equal(result.response.status, 403)
+  })
+  await context.test('ученик не найден', async () => {
+    const result = await postJson('/api/admin/update-student', validBody, 1001)
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Ученик не найден.' })
   })
 })
 
@@ -2125,6 +3883,265 @@ test('POST /api/admin/profile-edits/:id сохраняет validation, auth и r
   })
 })
 
+test('POST /api/teacher/review принимает работу и создаёт все побочные эффекты', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: fixtureIds.studentOneId,
+    lessonNumber: 5,
+  })
+  const response = await fetch(`${baseUrl}/api/teacher/review`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Web-Session': testTeacherWebSessionToken,
+    },
+    body: JSON.stringify({
+      telegram_id: 2001,
+      homework_id: homeworkId,
+      rating: '5',
+      comment: '  Отличная техника  ',
+    }),
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const homework = db.prepare('SELECT status FROM homeworks WHERE id = ?').get(homeworkId)
+  const review = db.prepare(`
+    SELECT teacher_id, rating, comment, status
+    FROM homework_reviews WHERE homework_id = ? ORDER BY id DESC LIMIT 1
+  `).get(homeworkId)
+  const audit = db.prepare(`
+    SELECT action, meta FROM audit_log
+    WHERE action = 'teacher_review_homework' ORDER BY id DESC LIMIT 1
+  `).get()
+  const chat = db.prepare(`
+    SELECT student_id, sender_user_id, text_content, content_type, file_id
+    FROM chat_messages WHERE student_id = ? ORDER BY id DESC LIMIT 1
+  `).get(fixtureIds.studentOneId)
+  const notifications = db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT user_id FROM students WHERE id = ?)
+      AND kind IN ('homework_review', 'feedback_invite')
+    ORDER BY id DESC LIMIT 2
+  `).all(fixtureIds.studentOneId)
+  const invite = db.prepare(`
+    SELECT student_id, milestone, delivery_status
+    FROM feedback_invites WHERE student_id = ? AND milestone = 5
+  `).get(fixtureIds.studentOneId)
+  db.close()
+
+  assert.equal(homework.status, 'approved')
+  assert.deepEqual(review, {
+    teacher_id: 1,
+    rating: 5,
+    comment: 'Отличная техника',
+    status: 'approved',
+  })
+  assert.deepEqual(audit, {
+    action: 'teacher_review_homework',
+    meta: JSON.stringify({ homework_id: homeworkId, status: 'approved' }),
+  })
+  assert.deepEqual(chat, {
+    student_id: fixtureIds.studentOneId,
+    sender_user_id: 2,
+    text_content: '✅ Проверка ДЗ (урок №5): принято. Оценка: 5/5. Комментарий: Отличная техника',
+    content_type: 'system',
+    file_id: null,
+  })
+  assert.deepEqual(notifications, [
+    {
+      kind: 'homework_review',
+      body: 'Задание по урок №5 принято. Оценка: 5 из 5.\nКомментарий: Отличная техника',
+      payload: JSON.stringify({ homework_id: homeworkId, status: 'approved' }),
+    },
+    {
+      kind: 'feedback_invite',
+      body: 'Урок №5 принят. Расскажите администратору, как проходит обучение. Отзыв недоступен преподавателю.',
+      payload: JSON.stringify({ screen: 'feedback' }),
+    },
+  ])
+  assert.deepEqual(invite, {
+    student_id: fixtureIds.studentOneId,
+    milestone: 5,
+    delivery_status: 'pending',
+  })
+})
+
+test('POST /api/teacher/review возвращает работу на доработку по комментарию', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: fixtureIds.studentOneId,
+    lessonNumber: 6,
+  })
+  const { response, body } = await postJson(
+    '/api/teacher/review',
+    { telegram_id: 2001, homework_id: homeworkId, comment: '  Исправьте форму  ' },
+    2001,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const homework = db.prepare('SELECT status FROM homeworks WHERE id = ?').get(homeworkId)
+  const review = db.prepare(`
+    SELECT rating, comment, status FROM homework_reviews
+    WHERE homework_id = ? ORDER BY id DESC LIMIT 1
+  `).get(homeworkId)
+  const chat = db.prepare(`
+    SELECT text_content FROM chat_messages WHERE student_id = ? ORDER BY id DESC LIMIT 1
+  `).get(fixtureIds.studentOneId)
+  const notification = db.prepare(`
+    SELECT body, payload FROM app_notifications
+    WHERE kind = 'homework_review' AND payload LIKE ? ORDER BY id DESC LIMIT 1
+  `).get(`%\"homework_id\":${homeworkId}%`)
+  db.close()
+
+  assert.equal(homework.status, 'revision')
+  assert.deepEqual(review, {
+    rating: null,
+    comment: 'Исправьте форму',
+    status: 'rejected',
+  })
+  assert.deepEqual(chat, {
+    text_content: '❌ Проверка ДЗ (урок №6): нужна доработка. Комментарий: Исправьте форму',
+  })
+  assert.deepEqual(notification, {
+    body: 'Задание по урок №6 нужно доработать.\nКомментарий: Исправьте форму',
+    payload: JSON.stringify({ homework_id: homeworkId, status: 'revision' }),
+  })
+})
+
+test('POST /api/teacher/review позволяет администратору проверить любого активного ученика', async () => {
+  const homeworkId = createPendingHomework({
+    studentId: fixtureIds.studentTwoId,
+    lessonNumber: 7,
+    isBonus: 1,
+  })
+  const { response, body } = await postJson(
+    '/api/teacher/review',
+    { telegram_id: 1001, homework_id: homeworkId, rating: 4 },
+    1001,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const teacher = db.prepare(`
+    SELECT t.full_name, t.user_id
+    FROM teachers t JOIN users u ON u.id = t.user_id
+    WHERE u.telegram_id = 1001
+  `).get()
+  const review = db.prepare(`
+    SELECT hr.rating, hr.status, t.user_id AS teacher_user_id
+    FROM homework_reviews hr JOIN teachers t ON t.id = hr.teacher_id
+    WHERE hr.homework_id = ?
+  `).get(homeworkId)
+  const invite = db.prepare(`
+    SELECT id FROM feedback_invites WHERE student_id = ? AND milestone = 7
+  `).get(fixtureIds.studentTwoId)
+  db.close()
+
+  assert.deepEqual(teacher, { full_name: 'Админ Тестовый', user_id: 1 })
+  assert.deepEqual(review, { rating: 4, status: 'approved', teacher_user_id: 1 })
+  assert.equal(invite, undefined)
+})
+
+test('POST /api/teacher/review сохраняет validation, auth и domain-ошибки', async (context) => {
+  await context.test('body проверяется до credential', async () => {
+    for (const body of [
+      { telegram_id: 2001, homework_id: 0, rating: 5 },
+      { telegram_id: 2001, homework_id: 1, rating: 6 },
+      { telegram_id: 2001, homework_id: 1, comment: 123 },
+    ]) {
+      const result = await postJson('/api/teacher/review', body)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+    }
+  })
+
+  await context.test('нет credential', async () => {
+    const result = await postJson('/api/teacher/review', {
+      telegram_id: 2001,
+      homework_id: 999999,
+      rating: 5,
+    })
+    assert.equal(result.response.status, 401)
+  })
+
+  await context.test('пользователь не найден', async () => {
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 9999, homework_id: 999999, rating: 5 },
+      9999,
+    )
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Пользователь не найден.' })
+  })
+
+  await context.test('пользователь не преподаватель', async () => {
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 3001, homework_id: 999999, rating: 5 },
+      3001,
+    )
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, { ok: false, error: 'Доступ только для преподавателей.' })
+  })
+
+  await context.test('задание не найдено', async () => {
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 2001, homework_id: 999999, rating: 5 },
+      2001,
+    )
+    assert.equal(result.response.status, 404)
+    assert.deepEqual(result.body, { ok: false, error: 'Задание не найдено.' })
+  })
+
+  await context.test('задание уже проверено', async () => {
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 2001, homework_id: fixtureIds.approvedHomeworkId, rating: 5 },
+      2001,
+    )
+    assert.equal(result.response.status, 409)
+    assert.deepEqual(result.body, { ok: false, error: 'Это задание уже проверено.' })
+  })
+
+  await context.test('ученик не назначен преподавателю', async () => {
+    const homeworkId = createPendingHomework({
+      studentId: fixtureIds.studentTwoId,
+      lessonNumber: 8,
+    })
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 2001, homework_id: homeworkId, rating: 5 },
+      2001,
+    )
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Ученик не прикреплён к этому преподавателю.',
+    })
+  })
+
+  await context.test('нужна оценка или непустой комментарий', async () => {
+    const homeworkId = createPendingHomework({
+      studentId: fixtureIds.studentOneId,
+      lessonNumber: 9,
+    })
+    const result = await postJson(
+      '/api/teacher/review',
+      { telegram_id: 2001, homework_id: homeworkId, comment: '   ' },
+      2001,
+    )
+    assert.equal(result.response.status, 400)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Укажите оценку или напишите комментарий.',
+    })
+  })
+})
+
 test('legacy SEC-001: публичный профиль сейчас возвращает работы во всех статусах', async () => {
   const studentsResult = await getJson('/api/guest/portfolio-students')
   const student = studentsResult.body.data.students.find((item) => item.full_name === 'Анна Ученица')
@@ -2141,6 +4158,232 @@ test('legacy SEC-002: преподаватель сейчас получает �
   const { response, body } = await getJson('/api/chats/students?telegram_id=2001', 2001)
   assert.equal(response.status, 200)
   assert.equal(body.data.students.length, 2)
+})
+
+test('GET /api/chats/students сохраняет списки ученика и администратора', async () => {
+  const student = await getJson('/api/chats/students?telegram_id=3001', 3001)
+  assert.equal(student.response.status, 200)
+  assert.deepEqual(student.body, {
+    ok: true,
+    data: {
+      students: [
+        { id: fixtureIds.studentOneId, full_name: 'Анна Ученица', status: 'studying' },
+      ],
+    },
+  })
+
+  const admin = await getJson('/api/chats/students?telegram_id=1001', 1001)
+  assert.equal(admin.response.status, 200)
+  assert.deepEqual(
+    admin.body.data.students.map(({ id, status }) => ({ id, status })),
+    [
+      { id: fixtureIds.studentOneId, status: 'studying' },
+      { id: fixtureIds.studentTwoId, status: 'studying' },
+    ],
+  )
+  assert.deepEqual(
+    admin.body.data.students.map(({ full_name }) => full_name),
+    [...admin.body.data.students.map(({ full_name }) => full_name)].sort(),
+  )
+})
+
+test('GET /api/chats/messages сохраняет сортировку, limit и маппинг отправителей', async () => {
+  const { response, body } = await getJson(
+    `/api/chats/messages?telegram_id=3001&student_id=${fixtureIds.studentOneId}`,
+    3001,
+  )
+  assert.equal(response.status, 200)
+  const fixtureMessages = body.data.messages.filter(
+    ({ id }) => id <= fixtureIds.systemChatMessageId,
+  )
+  assert.deepEqual(fixtureMessages, [
+    {
+      id: fixtureIds.studentChatMessageId,
+      student_id: fixtureIds.studentOneId,
+      sender_user_id: fixtureMessages[0].sender_user_id,
+      sender_name: 'Анна Ученица',
+      sender_role: 'ученик',
+      sender_role_key: 'student',
+      sender_role_color: 'var(--gold)',
+      sender_telegram_id: 3001,
+      text_content: 'Сообщение ученика',
+      content_type: 'text',
+      has_file: false,
+      created_at: '2026-09-24 08:00:00',
+    },
+    {
+      id: fixtureIds.teacherChatFileMessageId,
+      student_id: fixtureIds.studentOneId,
+      sender_user_id: fixtureMessages[1].sender_user_id,
+      sender_name: 'Ирина Преподаватель',
+      sender_role: 'преподаватель',
+      sender_role_key: 'teacher',
+      sender_role_color: 'var(--success)',
+      sender_telegram_id: 2001,
+      text_content: 'Файл преподавателя',
+      content_type: 'document',
+      has_file: true,
+      created_at: '2026-09-24 08:01:00',
+    },
+    {
+      id: fixtureIds.adminChatMessageId,
+      student_id: fixtureIds.studentOneId,
+      sender_user_id: fixtureMessages[2].sender_user_id,
+      sender_name: 'Админ Тестовый',
+      sender_role: 'админ',
+      sender_role_key: 'admin',
+      sender_role_color: 'var(--danger)',
+      sender_telegram_id: 1001,
+      text_content: 'Сообщение администратора',
+      content_type: 'text',
+      has_file: false,
+      created_at: '2026-09-24 08:02:00',
+    },
+    {
+      id: fixtureIds.systemChatMessageId,
+      student_id: fixtureIds.studentOneId,
+      sender_user_id: fixtureMessages[3].sender_user_id,
+      sender_name: 'Система',
+      sender_role: 'система',
+      sender_role_key: 'system',
+      sender_role_color: 'var(--dim)',
+      sender_telegram_id: 1001,
+      text_content: 'Системное сообщение',
+      content_type: 'system',
+      has_file: false,
+      created_at: '2026-09-24 08:03:00',
+    },
+  ])
+
+  const db = new Database(legacyDatabasePath)
+  const insertMessage = db.prepare(`
+    INSERT INTO chat_messages
+      (student_id, sender_user_id, text_content, content_type, created_at)
+    VALUES (?, (SELECT id FROM users WHERE telegram_id = 3001), ?, 'text', ?)
+  `)
+  const penultimateId = Number(insertMessage.run(
+    fixtureIds.studentOneId,
+    'Предпоследнее контрактное сообщение',
+    '2026-09-24 23:58:00',
+  ).lastInsertRowid)
+  const latestId = Number(insertMessage.run(
+    fixtureIds.studentOneId,
+    'Последнее контрактное сообщение',
+    '2026-09-24 23:59:00',
+  ).lastInsertRowid)
+  db.close()
+
+  const limited = await getJson(
+    `/api/chats/messages?telegram_id=3001&student_id=${fixtureIds.studentOneId}&limit=2`,
+    3001,
+  )
+  assert.equal(limited.response.status, 200)
+  assert.deepEqual(
+    limited.body.data.messages.map((message) => message.id),
+    [penultimateId, latestId],
+  )
+})
+
+test('GET /api/chats/messages сохраняет legacy-матрицу доступа и ошибки', async () => {
+  const teacher = await getJson(
+    `/api/chats/messages?telegram_id=2001&student_id=${fixtureIds.studentTwoId}`,
+    2001,
+  )
+  assert.equal(teacher.response.status, 200)
+  assert.ok(
+    teacher.body.data.messages.every(
+      ({ student_id }) => student_id === fixtureIds.studentTwoId,
+    ),
+  )
+
+  const outsider = await getJson(
+    `/api/chats/messages?telegram_id=3002&student_id=${fixtureIds.studentOneId}`,
+    3002,
+  )
+  assert.equal(outsider.response.status, 403)
+  assert.deepEqual(outsider.body, {
+    ok: false,
+    error: 'Нет доступа к чату этого ученика.',
+  })
+
+  const invalid = await getJson('/api/chats/messages?telegram_id=3001&student_id=nope')
+  assert.equal(invalid.response.status, 400)
+  assert.deepEqual(invalid.body, { ok: false, error: 'Некорректные параметры запроса.' })
+
+  const missingUser = await getJson(
+    `/api/chats/messages?telegram_id=9999&student_id=${fixtureIds.studentOneId}`,
+    9999,
+  )
+  assert.equal(missingUser.response.status, 404)
+  assert.deepEqual(missingUser.body, { ok: false, error: 'Пользователь не найден.' })
+})
+
+test('GET /api/chats/messages/:id/file сохраняет файл, доступ и порядок ошибок', async () => {
+  for (const telegramId of [3001, 2001, 1001]) {
+    const response = await getResponse(
+      `/api/chats/messages/${fixtureIds.teacherChatFileMessageId}/file?telegram_id=${telegramId}`,
+      telegramId,
+    )
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('content-type'), 'application/octet-stream')
+    assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin')
+    assert.equal(await response.text(), 'chat file')
+  }
+
+  const outsider = await getJson(
+    `/api/chats/messages/${fixtureIds.teacherChatFileMessageId}/file?telegram_id=3002`,
+    3002,
+  )
+  assert.equal(outsider.response.status, 403)
+  assert.deepEqual(outsider.body, { ok: false, error: 'Нет доступа к этому вложению.' })
+
+  const noFile = await getJson(
+    `/api/chats/messages/${fixtureIds.studentChatMessageId}/file?telegram_id=3001`,
+    3001,
+  )
+  assert.equal(noFile.response.status, 404)
+  assert.deepEqual(noFile.body, { ok: false, error: 'Вложение недоступно.' })
+
+  const missing = await getJson('/api/chats/messages/999999/file?telegram_id=3001', 3001)
+  assert.equal(missing.response.status, 404)
+  assert.deepEqual(missing.body, { ok: false, error: 'Сообщение не найдено.' })
+
+  const invalid = await getJson('/api/chats/messages/nope/file?telegram_id=3001')
+  assert.equal(invalid.response.status, 400)
+  assert.deepEqual(invalid.body, { ok: false, error: 'Некорректные параметры запроса.' })
+})
+
+test('legacy POST /api/chats/messages сохраняет запись и текущую SEC-002 уязвимость', async () => {
+  const result = await postMultipart('/api/chats/messages', {
+    telegram_id: 2001,
+    student_id: fixtureIds.studentTwoId,
+    text_content: '  Legacy сообщение неназначенного преподавателя  ',
+  }, 2001)
+
+  assert.equal(result.response.status, 200)
+  assert.equal(result.body.data.message.student_id, fixtureIds.studentTwoId)
+  assert.equal(result.body.data.message.text_content, 'Legacy сообщение неназначенного преподавателя')
+  assert.equal(result.body.data.message.content_type, 'text')
+  assert.equal(result.body.data.message.sender_role_key, 'teacher')
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const notification = db.prepare(`
+    SELECT n.kind, n.body, n.payload
+    FROM app_notifications n
+    JOIN users u ON u.id = n.user_id
+    WHERE u.telegram_id = 3002
+    ORDER BY n.id DESC
+    LIMIT 1
+  `).get()
+  db.close()
+  assert.deepEqual(notification, {
+    kind: 'chat_message',
+    body: 'Новое сообщение в вашем чате от преподавателя.',
+    payload: JSON.stringify({
+      student_id: fixtureIds.studentTwoId,
+      message_id: result.body.data.message.id,
+    }),
+  })
 })
 
 test('legacy BUG-001: фильтр completed сейчас возвращает и studying-учеников', async () => {
@@ -2458,5 +4701,7 @@ test('legacy SEC-001: публичная файловая ручка сейча�
 test.todo('SEC-001: публичный профиль должен возвращать только approved-работы')
 test.todo('SEC-001: публичная файловая ручка должна отклонять не-approved работу')
 test.todo('SEC-002: преподаватель должен получать чаты только назначенных учеников')
+test.todo('SEC-003: снятие роли преподавателя должно сохранять профиль и исторические проверки')
 test.todo('BUG-001: admin/students должен точно фильтровать studying и completed')
 test.todo('BUG-002: обработка profile edit должна уведомлять ученика')
+test.todo('BUG-003: admin/update-student должен быть атомарным при domain-ошибке')

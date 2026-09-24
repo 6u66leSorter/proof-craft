@@ -21,7 +21,7 @@ export class UpdateTeacherAboutUseCase {
     principal: AuthenticatedPrincipal,
     command: UpdateAboutCommand,
   ): Promise<{ ok: true }> {
-    if (!principal.user) throw teacherOnlyError()
+    if (!principal.user?.roles.includes('teacher')) throw teacherOnlyError()
     const updated = await this.profiles.updateTeacherAbout(
       principal.user.id,
       command.aboutMe,

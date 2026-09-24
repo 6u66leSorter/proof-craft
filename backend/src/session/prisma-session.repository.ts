@@ -25,6 +25,7 @@ export class PrismaSessionRepository implements SessionRepository {
       },
     })
     if (!user) return null
+    const roles = user.user_roles.map(({ role }) => role)
 
     const student = user.students
     const [rating, unreadNotificationsCount] = await Promise.all([
@@ -45,7 +46,7 @@ export class PrismaSessionRepository implements SessionRepository {
     ])
 
     return {
-      roles: user.user_roles.map(({ role }) => role),
+      roles,
       vkAccountLinked: user.vk_user_id != null,
       student: student
         ? {
@@ -72,7 +73,7 @@ export class PrismaSessionRepository implements SessionRepository {
             })),
           }
         : null,
-      teacher: user.teachers
+      teacher: roles.includes('teacher') && user.teachers
         ? {
             id: user.teachers.id,
             fullName: user.teachers.full_name,
