@@ -631,10 +631,26 @@ test('GET admin/teachers возвращает телефон и активных
   })
 })
 
-test('GET admin/students точно фильтрует статусы и возвращает агрегаты', async () => {
-  const studying = await app.inject({
+test('GET admin/students без status возвращает всех активных учеников, как legacy', async () => {
+  const response = await app.inject({
     method: 'GET',
     url: `/api/admin/students?telegram_id=${adminTelegramId}`,
+    headers: authHeaders(adminTelegramId),
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(
+    response.json().data.students.map(({ id, status }: { id: number; status: string }) => ({ id, status })),
+    [
+      { id: ids.completedStudentId, status: 'completed' },
+      { id: ids.studentId, status: 'studying' },
+    ],
+  )
+})
+
+test('GET admin/students точно фильтрует явный status и возвращает агрегаты', async () => {
+  const studying = await app.inject({
+    method: 'GET',
+    url: `/api/admin/students?telegram_id=${adminTelegramId}&status=studying`,
     headers: authHeaders(adminTelegramId),
   })
   assert.equal(studying.statusCode, 200)

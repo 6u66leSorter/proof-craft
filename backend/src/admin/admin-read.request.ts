@@ -10,10 +10,16 @@ export const ADMIN_STUDENT_STATUSES = [
 
 export type AdminStudentStatus = (typeof ADMIN_STUDENT_STATUSES)[number]
 
+/**
+ * Фильтр списка учеников. Без `status` клиенты ожидают всех активных (studying и completed),
+ * как legacy; явный `status` фильтрует точно (исправление BUG-001).
+ */
+export type AdminStudentStatusFilter = AdminStudentStatus | 'active'
+
 export type AdminReadRequest = AuthenticationRequest & {
   params?: unknown
   adminFeedbackBefore?: number
-  adminStudentStatus?: AdminStudentStatus
+  adminStudentStatus?: AdminStudentStatusFilter
   adminStudentId?: number
   adminHomeworkStudentId?: number | null
   adminAuditLimit?: number
@@ -37,8 +43,9 @@ const optionalPositiveInteger = (value: unknown): number | undefined => {
 export const parseFeedbackBefore = (query: unknown): number | undefined =>
   optionalPositiveInteger(objectFrom(query).before)
 
-export const parseStudentStatus = (query: unknown): AdminStudentStatus => {
-  const status = objectFrom(query).status ?? 'studying'
+export const parseStudentStatus = (query: unknown): AdminStudentStatusFilter => {
+  const status = objectFrom(query).status
+  if (status === undefined) return 'active'
   return typeof status === 'string' &&
     ADMIN_STUDENT_STATUSES.includes(status as AdminStudentStatus)
     ? (status as AdminStudentStatus)
