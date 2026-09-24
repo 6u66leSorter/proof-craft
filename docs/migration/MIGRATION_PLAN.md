@@ -69,7 +69,8 @@ client -> nginx/router -> legacy Fastify :8787
 - `POST /api/teacher/review` реализован в `TeacherCabinetModule`: use case сохраняет legacy-правила принятия/доработки и формирует сообщения, repository атомарно записывает проверку, статус, аудит, системное сообщение, in-app уведомление и одноразовый feedback invite, а Telegram-доставка выполняется через общий gateway после коммита.
 - `POST /api/admin/students` реализован в `AdminModule`: validation guard сохраняет порядок ошибок, use case применяет admin-policy и legacy-переходы статусов, а отдельный write-repository одной Prisma-транзакцией обновляет статус, заменяет назначения только при непустом `teacher_ids` для approve, пишет аудит и in-app уведомление. Telegram-доставка выполняется после коммита.
 - `POST /api/admin/teachers` реализован в `AdminModule`: назначение идемпотентно добавляет роль и создаёт профиль только при его отсутствии; снятие роли одной Prisma-транзакцией удаляет роль и текущие назначения, но сохраняет teacher-профиль и исторические проверки. Административный список, session и teacher use cases считают профиль активным только при наличии роли, а повторное назначение переиспользует прежний профиль.
-- Следующий маршрут — `POST /api/admin/assign-student`, затем парный `POST /api/admin/unassign-student`.
+- `POST /api/admin/assign-student` и `POST /api/admin/unassign-student` реализованы общим application use case и Prisma repository: связь, аудит и два app-уведомления фиксируются одной транзакцией, после чего Telegram gateway последовательно уведомляет преподавателя и ученика. Повторные вызовы сохраняют legacy side effects; уровень `barber` получает успешный ответ без создания связи, а назначать можно только преподавателя с активной ролью.
+- Следующий маршрут — `POST /api/admin/update-student`, затем административная обработка заявок преподавателей.
 
 ### 5. Вывод legacy и миграция СУБД
 

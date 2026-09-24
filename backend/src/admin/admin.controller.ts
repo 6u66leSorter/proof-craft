@@ -32,6 +32,12 @@ import {
 } from './admin-teacher-role.body.js'
 import { AdminTeacherRoleGuard } from './admin-teacher-role.guard.js'
 import { ChangeAdminTeacherRoleUseCase } from './change-admin-teacher-role.use-case.js'
+import {
+  adminStudentAssignmentCommandFrom,
+  type AdminStudentAssignmentRequest,
+} from './admin-student-assignment.body.js'
+import { AdminStudentAssignmentGuard } from './admin-student-assignment.guard.js'
+import { ChangeAdminStudentAssignmentUseCase } from './change-admin-student-assignment.use-case.js'
 
 @Controller(['api/admin', 'admin'])
 export class AdminController {
@@ -54,6 +60,8 @@ export class AdminController {
     private readonly moderateStudent: ModerateAdminStudentUseCase,
     @Inject(ChangeAdminTeacherRoleUseCase)
     private readonly changeTeacherRole: ChangeAdminTeacherRoleUseCase,
+    @Inject(ChangeAdminStudentAssignmentUseCase)
+    private readonly changeStudentAssignment: ChangeAdminStudentAssignmentUseCase,
   ) {}
 
   @Get('teacher-applications')
@@ -91,6 +99,32 @@ export class AdminController {
     return await this.changeTeacherRole.execute(
       principal,
       adminTeacherRoleCommandFrom(request),
+    )
+  }
+
+  @Post('assign-student')
+  @HttpCode(200)
+  @UseGuards(AdminStudentAssignmentGuard, AuthenticationGuard)
+  async assignStudent(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Req() request: AdminStudentAssignmentRequest,
+  ): Promise<{ ok: true }> {
+    return await this.changeStudentAssignment.assign(
+      principal,
+      adminStudentAssignmentCommandFrom(request),
+    )
+  }
+
+  @Post('unassign-student')
+  @HttpCode(200)
+  @UseGuards(AdminStudentAssignmentGuard, AuthenticationGuard)
+  async unassignStudent(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Req() request: AdminStudentAssignmentRequest,
+  ): Promise<{ ok: true }> {
+    return await this.changeStudentAssignment.unassign(
+      principal,
+      adminStudentAssignmentCommandFrom(request),
     )
   }
 

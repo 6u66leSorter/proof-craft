@@ -917,3 +917,265 @@ test('POST admin/teachers деактивирует роль без потери 
     message: assignedMessage,
   })
 })
+
+test('POST admin assign/unassign меняет связь идемпотентно и уведомляет обе стороны', async () => {
+  const payload = {
+    telegram_id: adminTelegramId,
+    teacher_id: ids.teacherId,
+    student_id: ids.completedStudentId,
+  }
+  const teacherMessage = 'К вам прикреплён ученик: Completed Profile.'
+  const studentMessage = 'Вас прикрепили к преподавателю:   Teacher   Profile  .'
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/assign-student',
+      headers: {
+        ...authHeaders(adminTelegramId),
+        'content-type': 'application/json',
+      },
+      payload,
+    })
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json(), { ok: true })
+  }
+
+  let db = new Database(databasePath, { readonly: true })
+  const assignedCount = db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(ids.completedStudentId, ids.teacherId) as { count: number }
+  assert.equal(assignedCount.count, 1)
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_assign_student',
+    meta: JSON.stringify({
+      teacher_id: ids.teacherId,
+      student_id: ids.completedStudentId,
+    }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT user_id FROM teachers WHERE id = ?)
+    ORDER BY id DESC LIMIT 1
+  `).get(ids.teacherId), {
+    kind: 'student_assigned',
+    body: teacherMessage,
+    payload: JSON.stringify({
+      student_id: ids.completedStudentId,
+      teacher_id: ids.teacherId,
+    }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = (SELECT user_id FROM students WHERE id = ?)
+    ORDER BY id DESC LIMIT 1
+  `).get(ids.completedStudentId), {
+    kind: 'teacher_assigned',
+    body: studentMessage,
+    payload: JSON.stringify({
+      student_id: ids.completedStudentId,
+      teacher_id: ids.teacherId,
+    }),
+  })
+  db.close()
+  assert.deepEqual(sentNotifications.slice(-2), [
+    { telegramId: teacherTelegramId, message: teacherMessage },
+    { telegramId: completedStudentTelegramId, message: studentMessage },
+  ])
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await app.inject({
+      method: 'POST',
+      url: attempt === 0
+        ? '/admin/unassign-student'
+        : '/api/admin/unassign-student',
+      headers: attempt === 0
+        ? {
+            'x-web-session': adminWebSessionToken,
+            'content-type': 'application/json',
+          }
+        : {
+            ...authHeaders(adminTelegramId),
+            'content-type': 'application/json',
+          },
+      payload,
+    })
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json(), { ok: true })
+  }
+
+  db = new Database(databasePath, { readonly: true })
+  const unassignedCount = db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(ids.completedStudentId, ids.teacherId) as { count: number }
+  assert.equal(unassignedCount.count, 0)
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_unassign_student',
+    meta: JSON.stringify({
+      teacher_id: ids.teacherId,
+      student_id: ids.completedStudentId,
+    }),
+  })
+  db.close()
+  assert.deepEqual(sentNotifications.slice(-2), [
+    {
+      telegramId: teacherTelegramId,
+      message: 'Ученик Completed Profile снят с вашего ведения.',
+    },
+    {
+      telegramId: completedStudentTelegramId,
+      message: 'Преподаватель   Teacher   Profile   снят с вашего обучения.',
+    },
+  ])
+})
+
+test('POST admin/assign-student не создаёт связь для уровня barber', async () => {
+  const db = new Database(databasePath)
+  db.prepare(`
+    UPDATE students SET status = 'studying', student_track = 'barber' WHERE id = ?
+  `).run(ids.moderationStudentId)
+  db.close()
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/admin/assign-student',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      teacher_id: ids.teacherId,
+      student_id: ids.moderationStudentId,
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { ok: true })
+
+  const verification = new Database(databasePath)
+  const assignmentCount = verification.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(ids.moderationStudentId, ids.teacherId) as { count: number }
+  assert.equal(assignmentCount.count, 0)
+  assert.deepEqual(verification.prepare(`
+    SELECT kind, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(ids.moderationStudentUserId), {
+    kind: 'teacher_assigned',
+    payload: JSON.stringify({
+      student_id: ids.moderationStudentId,
+      teacher_id: ids.teacherId,
+    }),
+  })
+  verification.prepare(`
+    UPDATE students SET student_track = 'student' WHERE id = ?
+  `).run(ids.moderationStudentId)
+  verification.close()
+})
+
+test('POST admin assignment сохраняет validation, auth и domain-ошибки', async (context) => {
+  const injectAssignment = async (
+    path: string,
+    payload: Record<string, unknown>,
+    telegramId?: number,
+  ) => await app.inject({
+    method: 'POST',
+    url: path,
+    headers: {
+      ...(telegramId == null ? {} : authHeaders(telegramId)),
+      'content-type': 'application/json',
+    },
+    payload,
+  })
+  const valid = {
+    telegram_id: adminTelegramId,
+    teacher_id: ids.teacherId,
+    student_id: ids.completedStudentId,
+  }
+
+  for (const path of ['/api/admin/assign-student', '/api/admin/unassign-student']) {
+    await context.test(`${path}: body проверяется до credential`, async () => {
+      for (const payload of [
+        { ...valid, teacher_id: 0 },
+        { ...valid, student_id: 'nope' },
+      ]) {
+        const response = await injectAssignment(path, payload)
+        assert.equal(response.statusCode, 400)
+        assert.deepEqual(response.json(), {
+          ok: false,
+          error: 'Некорректные параметры запроса.',
+        })
+      }
+    })
+  }
+  assert.equal((await injectAssignment('/api/admin/assign-student', valid)).statusCode, 401)
+  assert.equal(
+    (await injectAssignment('/api/admin/assign-student', valid, studentTelegramId)).statusCode,
+    403,
+  )
+  const nonAdmin = await injectAssignment('/api/admin/unassign-student', {
+    ...valid,
+    telegram_id: studentTelegramId,
+  }, studentTelegramId)
+  assert.equal(nonAdmin.statusCode, 403)
+  assert.deepEqual(nonAdmin.json(), {
+    ok: false,
+    error: 'Доступ только для администраторов.',
+  })
+
+  const missingTeacher = await injectAssignment('/api/admin/assign-student', {
+    ...valid,
+    teacher_id: 999999,
+  }, adminTelegramId)
+  assert.equal(missingTeacher.statusCode, 404)
+  assert.deepEqual(missingTeacher.json(), {
+    ok: false,
+    error: 'Преподаватель не найден.',
+  })
+
+  const missingStudent = await injectAssignment('/api/admin/assign-student', {
+    ...valid,
+    student_id: 999999,
+  }, adminTelegramId)
+  assert.equal(missingStudent.statusCode, 404)
+  assert.deepEqual(missingStudent.json(), {
+    ok: false,
+    error: 'Ученик не найден или не в статусе "обучается/завершил обучение".',
+  })
+
+  const missingPair = await injectAssignment('/api/admin/unassign-student', {
+    ...valid,
+    teacher_id: 999999,
+  }, adminTelegramId)
+  assert.equal(missingPair.statusCode, 404)
+  assert.deepEqual(missingPair.json(), {
+    ok: false,
+    error: 'Преподаватель или ученик не найден.',
+  })
+
+  const db = new Database(databasePath)
+  db.prepare(`
+    DELETE FROM user_roles
+    WHERE user_id = (SELECT user_id FROM teachers WHERE id = ?) AND role = 'teacher'
+  `).run(ids.teacherId)
+  db.close()
+  const inactive = await injectAssignment('/api/admin/assign-student', valid, adminTelegramId)
+  assert.equal(inactive.statusCode, 404)
+  assert.deepEqual(inactive.json(), {
+    ok: false,
+    error: 'Преподаватель не найден.',
+  })
+  const cleanup = new Database(databasePath)
+  cleanup.prepare(`
+    INSERT INTO user_roles (user_id, role)
+    SELECT user_id, 'teacher' FROM teachers WHERE id = ?
+  `).run(ids.teacherId)
+  cleanup.close()
+})

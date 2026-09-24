@@ -123,8 +123,8 @@
 | GET | `/api/admin/homeworks` | Telegram, VK или web-session; роль admin | Все либо отфильтрованные работы, проверки и вложения | high | nest-ready |
 | GET | `/api/admin/audit` | Telegram, VK или web-session; роль admin | Аудит действий с лимитом 1–200 и raw JSON meta | medium | nest-ready |
 | POST | `/api/admin/teachers` | Telegram, VK или web-session; роль admin | Назначение роли и профиля; при снятии — удаление роли и активных назначений без потери профиля и проверок | high | nest-ready |
-| POST | `/api/admin/assign-student` | администратор | Закрепление ученика | high | legacy |
-| POST | `/api/admin/unassign-student` | администратор | Снятие закрепления | high | legacy |
+| POST | `/api/admin/assign-student` | Telegram, VK или web-session; роль admin | Идемпотентное закрепление активного преподавателя за studying/completed-учеником, аудит и уведомления обеим сторонам; для уровня barber связь не создаётся | high | nest-ready |
+| POST | `/api/admin/unassign-student` | Telegram, VK или web-session; роль admin | Идемпотентное снятие закрепления, аудит и уведомления обеим сторонам | high | nest-ready |
 
 ## Кабинет преподавателя
 

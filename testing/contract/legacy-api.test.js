@@ -406,6 +406,45 @@ const createModerationStudent = (telegramId = 0) => {
   return { userId, studentId }
 }
 
+const createAssignmentFixture = ({
+  teacherTelegramId = 9201,
+  studentTelegramId = 9202,
+  studentTrack = 'student',
+} = {}) => {
+  const db = new Database(legacyDatabasePath)
+  const insertUser = db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, ?, ?, ?)
+  `)
+  const teacherUserId = Number(
+    insertUser.run(teacherTelegramId, 'Новый', 'Наставник', 'teacher').lastInsertRowid,
+  )
+  const studentUserId = Number(
+    insertUser.run(studentTelegramId, 'Новый', 'Подопечный', 'student').lastInsertRowid,
+  )
+  db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+    .run(teacherUserId, 'teacher')
+  db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+    .run(studentUserId, 'student')
+  const teacherId = Number(db.prepare(`
+    INSERT INTO teachers (user_id, full_name) VALUES (?, 'Новый Наставник')
+  `).run(teacherUserId).lastInsertRowid)
+  const studentId = Number(db.prepare(`
+    INSERT INTO students
+      (user_id, full_name, phone, lessons_count, status, student_track)
+    VALUES (?, 'Новый Подопечный', '+79990000920', 10, 'completed', ?)
+  `).run(studentUserId, studentTrack).lastInsertRowid)
+  db.close()
+  return {
+    teacherTelegramId,
+    studentTelegramId,
+    teacherUserId,
+    studentUserId,
+    teacherId,
+    studentId,
+  }
+}
+
 let fixtureIds
 
 before(async () => {
@@ -2174,6 +2213,164 @@ test('POST /api/admin/teachers сохраняет validation, auth и domain-о�
       error: 'Пользователь не найден. Попросите его отправить /start боту.',
     })
   })
+})
+
+test('POST admin/assign-student и unassign-student меняют связь и создают побочные эффекты', async () => {
+  const target = createAssignmentFixture()
+  const assignmentBody = {
+    telegram_id: 1001,
+    teacher_id: target.teacherId,
+    student_id: target.studentId,
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { response, body } = await postJson(
+      '/api/admin/assign-student',
+      assignmentBody,
+      1001,
+    )
+    assert.equal(response.status, 200)
+    assert.deepEqual(body, { ok: true })
+  }
+
+  let db = new Database(legacyDatabasePath, { readonly: true })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(target.studentId, target.teacherId).count, 1)
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_assign_student',
+    meta: JSON.stringify({ teacher_id: target.teacherId, student_id: target.studentId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.teacherUserId), {
+    kind: 'student_assigned',
+    body: 'К вам прикреплён ученик: Новый Подопечный.',
+    payload: JSON.stringify({ student_id: target.studentId, teacher_id: target.teacherId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.studentUserId), {
+    kind: 'teacher_assigned',
+    body: 'Вас прикрепили к преподавателю: Новый Наставник.',
+    payload: JSON.stringify({ student_id: target.studentId, teacher_id: target.teacherId }),
+  })
+  db.close()
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { response, body } = await postJson(
+      '/api/admin/unassign-student',
+      assignmentBody,
+      1001,
+    )
+    assert.equal(response.status, 200)
+    assert.deepEqual(body, { ok: true })
+  }
+
+  db = new Database(legacyDatabasePath, { readonly: true })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(target.studentId, target.teacherId).count, 0)
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'admin_unassign_student',
+    meta: JSON.stringify({ teacher_id: target.teacherId, student_id: target.studentId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.teacherUserId), {
+    kind: 'student_unassigned',
+    body: 'Ученик Новый Подопечный снят с вашего ведения.',
+    payload: JSON.stringify({ student_id: target.studentId, teacher_id: target.teacherId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.studentUserId), {
+    kind: 'teacher_unassigned',
+    body: 'Преподаватель Новый Наставник снят с вашего обучения.',
+    payload: JSON.stringify({ student_id: target.studentId, teacher_id: target.teacherId }),
+  })
+  db.close()
+
+  const cleanup = new Database(legacyDatabasePath)
+  cleanup.prepare('DELETE FROM users WHERE id IN (?, ?)')
+    .run(target.teacherUserId, target.studentUserId)
+  cleanup.close()
+})
+
+test('POST admin/assign-student сохраняет запрет связи для уровня barber', async () => {
+  const target = createAssignmentFixture({
+    teacherTelegramId: 9211,
+    studentTelegramId: 9212,
+    studentTrack: 'barber',
+  })
+  const { response, body } = await postJson('/api/admin/assign-student', {
+    telegram_id: 1001,
+    teacher_id: target.teacherId,
+    student_id: target.studentId,
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM student_teachers
+    WHERE student_id = ? AND teacher_id = ?
+  `).get(target.studentId, target.teacherId).count, 0)
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications
+    WHERE user_id IN (?, ?) AND kind IN ('student_assigned', 'teacher_assigned')
+  `).get(target.teacherUserId, target.studentUserId).count, 2)
+  db.close()
+
+  const cleanup = new Database(legacyDatabasePath)
+  cleanup.prepare('DELETE FROM users WHERE id IN (?, ?)')
+    .run(target.teacherUserId, target.studentUserId)
+  cleanup.close()
+})
+
+test('POST admin assignment сохраняет validation, auth и not-found ошибки', async (context) => {
+  const validBody = { telegram_id: 1001, teacher_id: 999999, student_id: 999999 }
+  for (const path of ['/api/admin/assign-student', '/api/admin/unassign-student']) {
+    await context.test(`${path}: body до credential`, async () => {
+      for (const body of [
+        { ...validBody, teacher_id: 0 },
+        { ...validBody, student_id: 'nope' },
+      ]) {
+        const result = await postJson(path, body)
+        assert.equal(result.response.status, 400)
+        assert.deepEqual(result.body, { ok: false, error: 'Некорректные параметры запроса.' })
+      }
+    })
+    await context.test(`${path}: нет credential`, async () => {
+      assert.equal((await postJson(path, validBody)).response.status, 401)
+    })
+    await context.test(`${path}: пользователь не администратор`, async () => {
+      const result = await postJson(path, {
+        telegram_id: 3001,
+        teacher_id: 999999,
+        student_id: 999999,
+      }, 3001)
+      assert.equal(result.response.status, 403)
+    })
+  }
+
+  const missingTeacher = await postJson('/api/admin/assign-student', validBody, 1001)
+  assert.equal(missingTeacher.response.status, 404)
+  assert.deepEqual(missingTeacher.body, { ok: false, error: 'Преподаватель не найден.' })
+
+  const missingPair = await postJson('/api/admin/unassign-student', validBody, 1001)
+  assert.equal(missingPair.response.status, 404)
+  assert.deepEqual(missingPair.body, { ok: false, error: 'Преподаватель или ученик не найден.' })
 })
 
 test('POST /api/student/profile-edit создаёт pending-заявку, аудит и уведомление администратору', async () => {

@@ -16,6 +16,14 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-24 — Назначение преподавателя ученику
+
+- **Цель:** пакетом перенести `POST /api/admin/assign-student` и `POST /api/admin/unassign-student` без расхождения административного workflow.
+- **Сделано:** в `AdminModule` добавлены общий body guard, application use case и Prisma repository. Создание/удаление связи, аудит и уведомления обеим сторонам объединены в одну транзакцию; Telegram отправляется преподавателю и ученику после коммита. Сохранены идемпотентные повторы и legacy-правило уровня `barber`; назначение деактивированного преподавателя запрещено согласно `SEC-003`.
+- **Проверка:** legacy — 216 успешных тестов и 6 целевых TODO; NestJS — 251 успешный тест. Characterization и Nest e2e покрывают assign/unassign, повторные вызовы, completed/barber, app- и Telegram-уведомления, аудит, Telegram/web-session, nginx-путь и ошибки `400/401/403/404`. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** оба маршрута получили статус `nest-ready`; теперь готовы 38 из 58 маршрутов, 19 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/admin/update-student`, затем `POST /api/admin/teacher-applications`.
+
 ### 2026-09-24 — Управление ролью преподавателя без потери истории
 
 - **Цель:** перенести `POST /api/admin/teachers` и устранить подтверждённый дефект `SEC-003`.
