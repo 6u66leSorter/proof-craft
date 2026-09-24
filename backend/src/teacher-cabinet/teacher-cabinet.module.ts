@@ -30,5 +30,6 @@ import { TeacherReviewGuard } from './teacher-review.guard.js'
       useClass: PrismaTeacherCabinetRepository,
     },
   ],
+  exports: [GetTeacherDashboardUseCase, GetTeacherStudentHomeworksUseCase, ReviewTeacherHomeworkUseCase],
 })
 export class TeacherCabinetModule {}

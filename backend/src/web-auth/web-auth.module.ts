@@ -11,5 +11,6 @@ import { WebAuthUseCases } from './web-auth.use-cases.js'
   imports: [PersistenceModule, PrismaModule],
   controllers: [WebAuthController],
   providers: [WebAuthUseCases, VkLaunchParamsService, { provide: WebAuthRepository, useClass: PrismaWebAuthRepository }],
+  exports: [WebAuthRepository],
 })
 export class WebAuthModule {}

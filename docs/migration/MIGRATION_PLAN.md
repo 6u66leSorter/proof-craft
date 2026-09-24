@@ -89,7 +89,7 @@ client -> nginx/router -> legacy Fastify :8787
 
 ### 5. Вывод legacy и миграция СУБД
 
-- Telegram-бот использует общие application services.
+- Telegram-бот использует общие application services — **сделано**: `backend/src/messenger/` (мессенджер-независимые сценарии, Telegram-адаптер, очередь приглашений к отзыву), отдельная точка входа `bot-main.ts`; отличия от legacy — в `BEHAVIOR_DECISIONS.md`. Следующий адаптер — MAX.
 - Отключаются Fastify и прямой `better-sqlite3`.
 - Отдельно выполняется проверяемая миграция SQLite → PostgreSQL.
 

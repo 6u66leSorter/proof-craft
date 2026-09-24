@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { UserNotificationGateway } from './user-notification.gateway.js'
 
+/** Адрес Bot API настраивается для локального Bot API-сервера и тестов. */
+export const telegramApiBaseUrl = (): string =>
+  (process.env.TELEGRAM_API_BASE_URL || 'https://api.telegram.org').replace(/\/+$/, '')
+
 @Injectable()
 export class TelegramUserNotificationGateway implements UserNotificationGateway {
   private readonly logger = new Logger(TelegramUserNotificationGateway.name)
@@ -13,7 +17,7 @@ export class TelegramUserNotificationGateway implements UserNotificationGateway 
     if (!botToken || !telegramId) return
 
     try {
-      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      const response = await fetch(`${telegramApiBaseUrl()}/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: telegramId, text: message }),

@@ -8,7 +8,7 @@
 
 - Клиент: vanilla JavaScript, CSS, Vite 7 (`src/`); один билд выбирает Telegram/VK по launch-параметрам.
 - Сервер: Node.js (ES modules), Fastify 5, Zod, `@fastify/cors`, `@fastify/multipart`.
-- Новый backend: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`). Все 58 маршрутов legacy API реализованы и имеют статус `nest-ready`; production продолжает обслуживать legacy API до переключения routing. Telegram-бот пока работает на legacy `bot/`.
+- Новый backend: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`). Все 58 маршрутов legacy API реализованы и имеют статус `nest-ready`; production продолжает обслуживать legacy API до переключения routing. Telegram-бот перенесён в `backend/src/messenger/` (отдельный процесс `bot-main.ts`, мессенджер-независимые сценарии и адаптеры; следующий — MAX); legacy `bot/registrationBot.js` остаётся до переключения.
 - Бот: `node-telegram-bot-api`.
 - Данные: SQLite через `better-sqlite3`; изображения обрабатывает `sharp`.
 - Прод: PM2 и nginx (маршрутизация `/api` поддерживает сценарий, где nginx срезает префикс).
@@ -90,6 +90,7 @@ npm run bot       # Telegram-бот
 npm test          # characterization-тесты legacy API в изолированной временной копии
 npm run backend:dev    # NestJS на 127.0.0.1:8788
 npm run backend:build  # TypeScript-сборка NestJS
+npm --prefix backend run start:bot:dev  # бот NestJS (нужны BOT_TOKEN и DATABASE_URL)
 npm --prefix frontend run dev        # новый клиент на 5174 (в разработке)
 npm --prefix frontend run visual:test:next  # новый клиент против эталонов legacy
 npm run lint
