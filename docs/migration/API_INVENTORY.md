@@ -56,7 +56,7 @@
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/student/homeworks` | Telegram, VK или web-session с существующим student | Только свои работы, все проверки, комментарии, вложения и рейтинг по принятым оценкам | high | nest-ready |
-| POST | `/api/homeworks` | ученик `studying` | Multipart до 5 файлов, защита от дубликата, уведомления | high | legacy |
+| POST | `/api/homeworks` | ученик `studying` | Multipart до 5 файлов, серии только из фото, защита от pending-дубликата, атомарные app-уведомления и best-effort Telegram | high | nest-ready |
 | PATCH | `/api/student/homeworks/:homeworkId` | владелец pending-работы | Редактирование текста и вложений | high | legacy |
 | POST | `/api/student/homeworks/:homeworkId/revision` | владелец revision-работы | Исправление и возврат в pending | high | legacy |
 | POST | `/api/homeworks/:id/comments` | ученик, назначенный преподаватель или администратор | Комментарий и уведомления | high | legacy |

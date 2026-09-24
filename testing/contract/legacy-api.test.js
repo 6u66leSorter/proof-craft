@@ -422,12 +422,60 @@ const postJson = async (path, body, telegramUserId = null) => {
 const postMultipart = async (path, fields, telegramUserId = null, file = null) => {
   const body = new FormData()
   for (const [key, value] of Object.entries(fields)) body.set(key, String(value))
-  if (file) body.set('file', new Blob([file.content], { type: file.type }), file.name)
+  const files = file == null ? [] : Array.isArray(file) ? file : [file]
+  for (const item of files) {
+    body.append(item.field ?? 'file', new Blob([item.content], { type: item.type }), item.name)
+  }
   const headers = telegramUserId == null
     ? {}
     : { 'X-Telegram-Init-Data': buildTelegramInitData(telegramUserId) }
   const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers, body })
   return { response, body: await response.json() }
+}
+
+const createHomeworkSubmissionFixture = () => {
+  const db = new Database(legacyDatabasePath)
+  const studentUserId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (9601, 'Контрактная', 'Ученица', 'student')
+  `).run().lastInsertRowid)
+  const teacherUserId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (9602, 'Контрактный', 'Наставник', 'teacher')
+  `).run().lastInsertRowid)
+  db.prepare(`INSERT INTO user_roles (user_id, role) VALUES (?, 'student')`).run(studentUserId)
+  db.prepare(`INSERT INTO user_roles (user_id, role) VALUES (?, 'teacher')`).run(teacherUserId)
+  const studentId = Number(db.prepare(`
+    INSERT INTO students (user_id, full_name, phone, lessons_count, status)
+    VALUES (?, 'Контрактная Ученица', '+79990009601', 3, 'studying')
+  `).run(studentUserId).lastInsertRowid)
+  const teacherId = Number(db.prepare(`
+    INSERT INTO teachers (user_id, full_name) VALUES (?, 'Контрактный Наставник')
+  `).run(teacherUserId).lastInsertRowid)
+  db.prepare(`INSERT INTO student_teachers (student_id, teacher_id) VALUES (?, ?)`)
+    .run(studentId, teacherId)
+  db.close()
+  return { studentId, studentUserId, teacherUserId }
+}
+
+const removeHomeworkSubmissionFixture = ({ studentId, studentUserId, teacherUserId }) => {
+  const db = new Database(legacyDatabasePath)
+  const transaction = db.transaction(() => {
+    db.prepare(`DELETE FROM app_notifications WHERE payload LIKE ?`)
+      .run(`%"student_id":${studentId}%`)
+    db.prepare(`DELETE FROM homework_files WHERE homework_id IN (
+      SELECT id FROM homeworks WHERE student_id = ?
+    )`).run(studentId)
+    db.prepare('DELETE FROM homeworks WHERE student_id = ?').run(studentId)
+    db.prepare('DELETE FROM student_teachers WHERE student_id = ?').run(studentId)
+    db.prepare('DELETE FROM teachers WHERE user_id = ?').run(teacherUserId)
+    db.prepare('DELETE FROM students WHERE id = ?').run(studentId)
+    db.prepare('DELETE FROM user_roles WHERE user_id IN (?, ?)')
+      .run(studentUserId, teacherUserId)
+    db.prepare('DELETE FROM users WHERE id IN (?, ?)').run(studentUserId, teacherUserId)
+  })
+  transaction()
+  db.close()
 }
 
 const createPendingHomework = ({ studentId, lessonNumber, isBonus = 0 }) => {
@@ -927,6 +975,157 @@ test('student/homeworks сохраняет auth и not-found ошибки', asyn
     const { response, body } = await getJson('/api/student/homeworks?telegram_id=9999', 9999)
     assert.equal(response.status, 404)
     assert.deepEqual(body, { ok: false, error: 'Ученик не найден.' })
+  })
+})
+
+test('POST /api/homeworks сохраняет multipart-контракт, ограничения и side effects', async (context) => {
+  const fixture = createHomeworkSubmissionFixture()
+  context.after(() => removeHomeworkSubmissionFixture(fixture))
+
+  await context.test('текстовая работа создаётся вместе с уведомлениями', async () => {
+    const result = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 1,
+      text_content: '  Текстовая работа  ',
+      haircut_name: `  ${'А'.repeat(205)}  `,
+    }, 9601)
+    assert.equal(result.response.status, 201)
+    const homework = result.body.data.homework
+    assert.equal(homework.lesson_number, 1)
+    assert.equal(homework.is_bonus, false)
+    assert.equal(homework.haircut_name, 'А'.repeat(200))
+    assert.equal(homework.content_type, 'text')
+    assert.equal(homework.text_content, 'Текстовая работа')
+    assert.equal(homework.status, 'pending')
+    assert.equal(homework.has_local_file, false)
+    assert.equal(homework.extra_files_count, 0)
+    assert.deepEqual(homework.attachments, [])
+
+    const db = new Database(legacyDatabasePath, { readonly: true })
+    const notifications = db.prepare(`
+      SELECT u.telegram_id, n.kind, n.body, n.payload
+      FROM app_notifications n
+      JOIN users u ON u.id = n.user_id
+      WHERE n.kind = 'new_homework' AND n.payload = ?
+      ORDER BY u.telegram_id
+    `).all(JSON.stringify({ student_id: fixture.studentId, homework_id: homework.id }))
+    db.close()
+    assert.deepEqual(notifications.map(({ telegram_id, kind, body, payload }) => ({
+      telegram_id: Number(telegram_id), kind, body, payload,
+    })), [
+      {
+        telegram_id: 1001,
+        kind: 'new_homework',
+        body: `Ученик Контрактная Ученица отправил ДЗ по урок №1 («${'А'.repeat(200)}»).`,
+        payload: JSON.stringify({ student_id: fixture.studentId, homework_id: homework.id }),
+      },
+      {
+        telegram_id: 9602,
+        kind: 'new_homework',
+        body: `Ученик Контрактная Ученица отправил ДЗ по урок №1 («${'А'.repeat(200)}»).`,
+        payload: JSON.stringify({ student_id: fixture.studentId, homework_id: homework.id }),
+      },
+    ])
+  })
+
+  await context.test('серия фото создаёт primary и упорядоченные attachments', async () => {
+    const result = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 2,
+      text_content: 'Серия фото',
+    }, 9601, [
+      { field: 'files', content: testImageSvg, type: 'image/svg+xml', name: 'first.svg' },
+      { field: 'files', content: testImageSvg, type: 'image/svg+xml', name: 'second.svg' },
+      { field: 'ignored', content: 'ignored', type: 'text/plain', name: 'ignored.txt' },
+    ])
+    assert.equal(result.response.status, 201)
+    const homework = result.body.data.homework
+    assert.equal(homework.content_type, 'photo')
+    assert.equal(homework.has_local_file, true)
+    assert.equal(homework.extra_files_count, 1)
+    assert.deepEqual(homework.attachments.map(({ content_type }) => content_type), ['photo'])
+
+    const db = new Database(legacyDatabasePath, { readonly: true })
+    const files = db.prepare(`
+      SELECT file_id, 0 AS sort_order FROM homeworks WHERE id = ?
+      UNION ALL
+      SELECT file_id, sort_order FROM homework_files WHERE homework_id = ?
+      ORDER BY sort_order
+    `).all(homework.id, homework.id)
+    db.close()
+    assert.deepEqual(files.map(({ sort_order }) => sort_order), [0, 1])
+    assert.ok(files.every(({ file_id }) => existsSync(file_id) && file_id.endsWith('.jpg')))
+  })
+
+  await context.test('duplicate, lesson bounds, empty и auth ошибки сохраняются', async () => {
+    const duplicate = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 1,
+      text_content: 'Дубликат',
+    }, 9601)
+    assert.equal(duplicate.response.status, 409)
+    assert.deepEqual(duplicate.body, {
+      ok: false,
+      error: 'По этому уроку или бонусу уже есть работа на проверке. Дождитесь проверки преподавателя.',
+    })
+
+    const unavailable = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 4,
+      text_content: 'Недоступный урок',
+    }, 9601)
+    assert.equal(unavailable.response.status, 400)
+    assert.deepEqual(unavailable.body, {
+      ok: false,
+      error: 'Урок №4 недоступен. По вашей программе 3 уроков.',
+    })
+
+    const empty = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      is_bonus: true,
+      text_content: '   ',
+    }, 9601)
+    assert.equal(empty.response.status, 400)
+    assert.deepEqual(empty.body, {
+      ok: false,
+      error: 'Добавьте файл или текстовое описание работы.',
+    })
+
+    const mismatch = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 3,
+      text_content: 'Auth mismatch',
+    }, 3001)
+    assert.equal(mismatch.response.status, 403)
+  })
+
+  await context.test('серия с документом и oversized-файл отклоняются', async () => {
+    const mixed = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 3,
+    }, 9601, [
+      { field: 'files', content: testImageSvg, type: 'image/svg+xml', name: 'photo.svg' },
+      { field: 'files', content: 'document', type: 'text/plain', name: 'document.txt' },
+    ])
+    assert.equal(mixed.response.status, 400)
+    assert.deepEqual(mixed.body, {
+      ok: false,
+      error: 'Несколько файлов за раз можно прикрепить только для фото. Видео или документ отправьте одним файлом (или добавьте текст к серии фото).',
+    })
+
+    const oversized = await postMultipart('/api/homeworks', {
+      telegram_id: 9601,
+      lesson_number: 3,
+    }, 9601, {
+      content: 'x'.repeat(2_048),
+      type: 'text/plain',
+      name: 'large.txt',
+    })
+    assert.equal(oversized.response.status, 413)
+    assert.deepEqual(oversized.body, {
+      ok: false,
+      error: 'Файл слишком большой. Максимум 0 МБ.',
+    })
   })
 })
 
