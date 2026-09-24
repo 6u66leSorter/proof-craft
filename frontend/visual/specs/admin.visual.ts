@@ -27,6 +27,14 @@ test.describe('администратор', () => {
     await snap('admin-student-inline-edit')
   })
 
+  test('настройка ученика: категория «Барбер»', async ({ snap, page }) => {
+    await tab(page, 'Ученики')
+    await page.getByRole('button', { name: /Настроить/ }).first().click()
+    await page.getByLabel('Категория ученика').first().selectOption('barber')
+    await expect(page.getByText('После сохранения барбер будет откреплён').first()).toBeVisible()
+    await snap('admin-student-inline-barber')
+  })
+
   test('карточка ученика и чат', async ({ snap, page }) => {
     await tab(page, 'Ученики')
     await page.getByRole('button', { name: 'Открыть карточку' }).first().click()

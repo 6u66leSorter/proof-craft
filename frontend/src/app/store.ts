@@ -78,6 +78,10 @@ type AppState = Selection & {
   studentSearch: Record<'teacher' | 'admin', StudentSearchState>
   /** Ученик, чьи работы открыты у преподавателя (legacy `teacherStudentHomeworks.student`). */
   teacherStudentId: number | null
+  /** Ученик, открытый в карточке администратора. */
+  adminStudentId: number | null
+  /** Ученик, у которого в списке администратора раскрыта настройка. */
+  adminEditOpenId: number | null
   /** Просмотр фото поверх экрана; сбрасывается при любом переходе. */
   lightbox: { items: PhotoItem[]; index: number } | null
   /** Категория учеников в гостевой витрине. */
@@ -117,6 +121,8 @@ export const useApp = create<AppState>()((set, get) => ({
     admin: { open: false, query: '', track: 'student' },
   },
   teacherStudentId: null,
+  adminStudentId: null,
+  adminEditOpenId: null,
   hwSubmit: { status: 'idle', error: '' },
   hwSubmitAbort: null,
   hwNewDraft: [],

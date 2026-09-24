@@ -7,6 +7,9 @@ import { GuestPortfolioScreen } from '../features/guest/GuestPortfolioScreen'
 import { GuestStudentScreen } from '../features/guest/GuestStudentScreen'
 import { HomeworkNewScreen } from '../features/homework/HomeworkNewScreen'
 import { HomeworkViewScreen } from '../features/homework/HomeworkViewScreen'
+import { AdminScreen } from '../features/admin/AdminScreen'
+import { AdminStudentScreen } from '../features/admin/AdminStudentScreen'
+import { AdminTeacherScreen } from '../features/admin/AdminTeacherScreen'
 import { StaffChatScreen } from '../features/chat/StaffChatScreen'
 import { TeacherScreen } from '../features/teacher/TeacherScreen'
 import { TeacherStudentScreen } from '../features/teacher/TeacherStudentScreen'
@@ -46,6 +49,12 @@ function Screen({ name }: { name: ScreenName }) {
       return <TeacherScreen />
     case 't-student':
       return <TeacherStudentScreen />
+    case 'admin':
+      return <AdminScreen />
+    case 'admin-student':
+      return <AdminStudentScreen />
+    case 'admin-teacher':
+      return <AdminTeacherScreen />
     case 'teacher-chat':
     case 'admin-chat':
       return <StaffChatScreen />

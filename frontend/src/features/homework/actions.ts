@@ -6,6 +6,7 @@ import { HW_EDIT_CLOSED, useApp } from '../../app/store'
 import { compressImageToJpegFile } from '../../domain/image'
 import { clearAuthImages } from '../../ui/AuthImg'
 import { toast } from '../../ui/toast'
+import { adminKeys } from '../admin/api'
 import { fetchStudentHomeworks } from '../student/api'
 import { fetchTeacherStudentHomeworks, teacherStudentHomeworksKey } from '../teacher/api'
 
@@ -209,6 +210,8 @@ export async function saveHomeworkReview(queryClient: QueryClient, homeworkId: n
     })
     toast(grade ? 'Задание принято' : 'Комментарий сохранён')
     // Legacy перечитывает список работ ученика у преподавателя, но открытую работу не обновляет (перенесено 1 в 1).
+    const adminStudentId = useApp.getState().adminStudentId
+    if (adminStudentId != null) await queryClient.invalidateQueries({ queryKey: adminKeys.student(adminStudentId) })
     await refreshTeacherHomework(queryClient, homeworkId)
     if (session?.student?.id) await refreshStudentHomework(queryClient, homeworkId)
     await refreshSessionQuiet()

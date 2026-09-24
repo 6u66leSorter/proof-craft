@@ -21,7 +21,7 @@
 | `src/` | Основной фронтенд: `main.js` загружает Telegram SDK и запускает `newFrontApp.js`; `index.css` — стили. |
 | `bot/` | API (`apiServer.js`), Telegram-бот (`registrationBot.js`), SQLite-схема/миграции (`database.js`) и сервисы запросов (`dbService.js`). |
 | `backend/` | Новый NestJS backend, общая проверка Telegram/VK/web-session credentials, Prisma schema и repository boundary; запускается рядом с legacy API и принимает только явно перенесённые маршруты. |
-| `frontend/` | Новый клиент (React 19 + TypeScript + Vite 8) в отдельном пакете: платформа, API-клиент, bootstrap и стек экранов перенесены, экраны переносятся по одному; `frontend/visual/` — визуальный baseline legacy-клиента и приёмка нового. Legacy `src/` не меняется и остаётся production. |
+| `frontend/` | Новый клиент (React 19 + TypeScript + Vite 8) в отдельном пакете: все экраны legacy перенесены и проверены попиксельно, ещё не опубликован; `frontend/visual/` — визуальный baseline legacy-клиента и приёмка нового. Legacy `src/` не меняется и остаётся production. |
 | `docs/migration/` | Реестр API, решения по legacy-поведению и этапный план миграции. |
 | `docs/db/schema.dbml` | Актуализируемая ER-диаграмма основных таблиц. |
 | `testing/atac/` | Импортируемая коллекция ATAC/Postman и smoke-сценарии API. |
