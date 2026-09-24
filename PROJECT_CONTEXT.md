@@ -84,7 +84,7 @@ npm run visual:test                    # визуальные тесты кли�
 npm run typecheck
 ```
 
-- **Docker:** переменные — в `.env` по шаблону `.env.example`; без `.env` поднимаются сайт и API, бот пишет, что `BOT_TOKEN` не задан, и завершается. Чистая сборка без кэша — около 1,5 минуты. Сервисы: `api` (NestJS, при старте создаёт схему, если база пустая), `bot` (тот же образ, `node dist/bot-main.js`), `web` (nginx со статикой клиента и прокси `/api` → `api`, порт `WEB_PORT`, по умолчанию 8080). База и `uploads` — в томе `barber-data`.
+- **Docker:** переменные — в `.env` по шаблону `.env.example` или в окружении платформы (compose подставляет их в `x-app-env`); без `.env` поднимаются сайт и API, бот пишет, что `BOT_TOKEN` не задан, и завершается. Чистая сборка без кэша — около 1,5 минуты. Сервисы: `api` (NestJS, при старте создаёт схему, если база пустая), `bot` (тот же образ, `node dist/bot-main.js`), `web` (nginx со статикой клиента и прокси `/api` → `api`, порт `WEB_PORT`, по умолчанию 8080). База и `uploads` — в томе `barber-data`.
 - Пустая база локально: `DATABASE_URL=file:/abs/path/barber.db npx --prefix backend tsx backend/src/database/init-schema.ts`.
 
 ## Конфигурация и секреты
