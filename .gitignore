@@ -30,3 +30,6 @@ data/
 *.sln
 *.sw?
 *.env
+
+# Docker: секреты окружения
+.env.docker

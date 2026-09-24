@@ -97,6 +97,7 @@ npm run lint
 npm run build
 ```
 
+- **Docker (новый стек):** `cp .env.docker.example .env.docker`, заполнить значения, `docker compose up --build`. Сервисы: `api` (NestJS, при старте создаёт схему SQLite legacy-миграциями, если базы нет), `bot` (тот же образ, `node dist/bot-main.js`), `web` (nginx со статикой React-клиента и прокси `/api` → `api`, порт `WEB_PORT`, по умолчанию 8080). База и `uploads` лежат в томе `barber-data`. Legacy `src/` и `bot/` в контейнерах не используются.
 - Для локальной проверки API без Telegram-подписи: `TG_WEBAPP_AUTH=off npm run api`.
 - Для визуального локального предпросмотра в обычном браузере запустить API в этом режиме и открыть Vite по адресу `http://127.0.0.1:5173/?preview=1`. Этот режим существует только в Vite-разработке, использует тестовый идентификатор и не доступен в production-сборке.
 - Управление локальными данными: `npm run db`, `npm run db:users`, `npm run db:backup`; выдача ролей — `npm run setup:admin` и `npm run setup:teacher`.
