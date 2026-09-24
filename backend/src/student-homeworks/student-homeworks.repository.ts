@@ -47,6 +47,64 @@ export type StudentHomeworksSnapshot = {
   ratingsCount: number
 }
 
+export type HomeworkNotificationRecipient = {
+  userId: number
+  telegramId: number
+}
+
+export type HomeworkSubmissionStudent = {
+  id: number
+  fullName: string
+  lessonsCount: number | null
+  status: string
+  teachers: HomeworkNotificationRecipient[]
+  admins: HomeworkNotificationRecipient[]
+}
+
+export type HomeworkSubmissionFile = {
+  fileId: string
+  contentType: string
+}
+
+export type CreateHomeworkSubmissionCommand = {
+  studentId: number
+  lessonNumber: number | null
+  isBonus: boolean
+  haircutName: string | null
+  textContent: string | null
+  files: HomeworkSubmissionFile[]
+  teacherNotificationBody: string
+  adminNotificationBody: string
+  teacherUserIds: number[]
+  adminUserIds: number[]
+}
+
+export type SubmittedHomework = {
+  id: number
+  lessonNumber: number | null
+  isBonus: boolean
+  haircutName: string | null
+  status: string
+  contentType: string
+  fileId: string | null
+  textContent: string | null
+  createdAt: string
+  attachments: Array<{ id: number; contentType: string; fileId: string }>
+}
+
+export type CreateHomeworkSubmissionResult =
+  | { kind: 'duplicate' }
+  | { kind: 'created'; homework: SubmittedHomework }
+
 export abstract class StudentHomeworksRepository {
   abstract findByUserId(userId: number): Promise<StudentHomeworksSnapshot | null>
+  abstract findSubmissionStudent(userId: number): Promise<HomeworkSubmissionStudent | null>
+  abstract hasPendingSubmission(
+    studentId: number,
+    lessonNumber: number | null,
+    isBonus: boolean,
+  ): Promise<boolean>
+  abstract createSubmission(
+    command: CreateHomeworkSubmissionCommand,
+  ): Promise<CreateHomeworkSubmissionResult>
 }

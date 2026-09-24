@@ -249,6 +249,7 @@ export class PrismaAdminReadRepository implements AdminReadRepository {
 
   async listTeachers() {
     const rows = await this.prisma.teachers.findMany({
+      where: { users: { user_roles: { some: { role: 'teacher' } } } },
       orderBy: { full_name: 'asc' },
       select: {
         id: true,

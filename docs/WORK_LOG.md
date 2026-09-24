@@ -16,6 +16,102 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-24 — Отправка новой домашней работы
+
+- **Цель:** перенести `POST /api/homeworks`, сохранив multipart-контракт, ограничения уроков и уведомления без файлов-сирот.
+- **Сделано:** `StudentHomeworksModule` расширен отдельными multipart guard, storage boundary, controller, use case и Prisma write-операцией. Поддержаны текст, один файл и серия до пяти фото, JPEG-нормализация, бонусные работы, лимит программы и защита от второго pending в том же слоте. Работа, дополнительные файлы и app-уведомления преподавателям/администраторам создаются одной транзакцией; Telegram отправляется после коммита. Staged и finalized-файлы очищаются при auth/domain/upload/DB-ошибках согласно `DATA-002`.
+- **Проверка:** legacy — 256 успешных тестов и 7 целевых TODO; NestJS — 302 успешных теста. Characterization и e2e покрывают `201`, текст, серию фото, порядок attachments, Telegram/web-session/nginx, app- и внешние уведомления, duplicate `409`, лимит уроков, статус ученика, смешанную серию, auth/unknown-user, oversized upload и очистку файлов. Также прошли ESLint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 48 из 58 маршрутов, 10 остаются на legacy. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** выбрать следующий legacy-маршрут только после подтверждения пользователя.
+
+### 2026-09-24 — Отправка сообщений чата
+
+- **Цель:** перенести `POST /api/chats/messages` в существующий `ChatModule`, сохранив multipart-контракт и исправив подтверждённые проблемы доступа и жизненного цикла файлов.
+- **Сделано:** добавлены multipart guard, безопасное staging/finalize-хранилище и отдельный use case. Текст или первое вложение создают сообщение и app-уведомления одной Prisma-транзакцией; изображения нормализуются в JPEG, а временные и финальные файлы очищаются при auth/domain/DB-ошибках. Запись применяет общий `ChatAccessPolicy`, поэтому неназначенный преподаватель больше не может писать ученику (`SEC-002`). Legacy characterization отдельно фиксирует прежнюю уязвимость.
+- **Проверка:** legacy — 251 успешный тест и 7 целевых TODO; NestJS — 290 успешных тестов. Целевые e2e покрывают текст ученика, вложение преподавателя, атомарные app-уведомления, nginx-путь, отказ неназначенному преподавателю, пустое сообщение, лимит размера и отсутствие файлов-сирот. Также прошли ESLint, backend typecheck, Prisma validate, backend/frontend production-сборки и `git diff --check`.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 47 из 58 маршрутов, 11 остаются на legacy. Схема БД, Prisma migrations, внешние уведомления и production routing не менялись.
+- **Следующий шаг:** выбрать следующий legacy-маршрут только после подтверждения пользователя.
+
+### 2026-09-24 — Чтение чатов и вложений
+
+- **Цель:** перенести единым пакетом `GET /api/chats/students`, `GET /api/chats/messages` и `GET /api/chats/messages/:id/file`, сохранив legacy-контракт и закрыв подтверждённый `SEC-002`.
+- **Сделано:** добавлен `ChatModule` с guard-проверками `CHAT_ENABLED` и параметров, общим `ChatAccessPolicy`, отдельными use cases, mapper сообщений и Prisma repository. Сохранены последние сообщения по возрастанию, `limit`, подписи/роли отправителей, точные ошибки и local/Telegram-файлы через общий storage boundary. Ученик видит свой чат, администратор — все, преподаватель — только назначенных учеников.
+- **Проверка:** legacy — 250 успешных тестов и 7 целевых TODO; NestJS — 284 успешных теста. Characterization и e2e покрывают роли, сортировку, `limit`, Telegram/VK/web-session, nginx-пути, `CHAT_ENABLED`, validation/auth/domain-порядок, локальный файл и исправление `SEC-002`. Также прошли ESLint, backend typecheck, Prisma validate, backend/frontend production-сборки и `git diff --check`.
+- **Вывод:** три read-маршрута получили статус `nest-ready`; теперь готовы 46 из 58 маршрутов, 12 остаются на legacy. Схема БД, Prisma migrations, `prisma db push` и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/chats/messages` в существующий `ChatModule`, не начиная работу без подтверждения пользователя.
+
+### 2026-09-24 — Регистрация ученика и приватная обратная связь
+
+- **Цель:** ускоренным пакетом перенести `POST /api/students` и `POST /api/student/feedback`, не меняя проверенный legacy-контракт.
+- **Сделано:** `RegistrationModule` расширен отдельными body guards, use cases и Prisma repository-операциями. Регистрация нормализует ФИО, телефон, число занятий и метро, атомарно создаёт identity, роли, student-профиль и app-уведомления, а Telegram отправляет после коммита. Feedback доступен только существующему student-профилю и идемпотентен по паре student + `request_key`.
+- **Проверка:** legacy — 246 успешных тестов и 7 целевых TODO; NestJS — 271 успешный тест. Characterization и e2e покрывают Telegram, VK, web-session, nginx-пути, `201/200`, повторную заявку, идемпотентность, изменения БД, уведомления и порядок ошибок schema/auth/domain. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** оба маршрута получили статус `nest-ready`; теперь готовы 43 из 58 маршрутов, 14 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести chat-блок, объединив `GET/POST /api/chats/messages`, файловую выдачу и уже покрытый `GET /api/chats/students` в один модуль.
+
+### 2026-09-24 — Подача заявки преподавателя
+
+- **Цель:** перенести `POST /api/teacher-application` как первую половину регистрационного блока.
+- **Сделано:** добавлен `RegistrationModule` с validation guard, use case и Prisma repository. Сохранены нормализация телефона, trim ФИО, разбор имени пользователя, guest identity для нового заявителя и полная замена прежней pending-заявки. Identity, заявка и app-уведомления всем администраторам записываются атомарно; Telegram отправляется после коммита.
+- **Проверка:** legacy — 241 успешный тест и 7 целевых TODO; NestJS — 266 успешных тестов. Characterization и e2e покрывают повторную подачу, Telegram, VK с реальным `vk_user_id`, web-session, nginx-путь, точные side effects и порядок ошибок validation/auth. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 41 из 58 маршрутов, 16 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/students` в тот же `RegistrationModule`.
+
+### 2026-09-24 — Обработка заявок преподавателей
+
+- **Цель:** перенести `POST /api/admin/teacher-applications`, сохранив внешний контракт approve/reject и согласовав его с исправлением `SEC-003`.
+- **Сделано:** в `AdminModule` добавлены body guard, application use case и Prisma repository. Reject атомарно меняет статус и пишет аудит без уведомления; approve атомарно создаёт роль/профиль, аудит и app-уведомление, после чего отправляет Telegram. Для уже активного преподавателя сохранён legacy-ответ `already_teacher` без повторных side effects; деактивированный сохранённый профиль реактивируется без дублирования карточки.
+- **Проверка:** legacy — 234 успешных теста и 7 целевых TODO; NestJS — 261 успешный тест. Characterization и e2e покрывают approve/reject, `already_teacher`, реактивацию, Telegram/web-session, nginx-путь, coercion и ошибки `400/401/403/404`. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 40 из 58 маршрутов, 17 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** пакетом перенести `POST /api/students` и `POST /api/teacher-application`.
+
+### 2026-09-24 — Административное обновление ученика
+
+- **Цель:** перенести `POST /api/admin/update-student` без изменения существующей последовательности бизнес-операций.
+- **Сделано:** в `AdminModule` добавлены body guard, use case и Prisma repository для частичного обновления `lessons_count`/`student_track`, полной замены назначений и аудита. Дубликаты преподавателей сворачиваются, пустой массив очищает связи, переход в `barber` снимает назначения, а неактивные teacher-профили отклоняются по правилу `SEC-003`.
+- **Проверка:** legacy — 225 успешных тестов и 7 целевых TODO; NestJS — 256 успешных тестов. Characterization и Nest e2e покрывают coercion, частичное/no-op обновление, replacement, barber, Telegram/web-session, nginx-путь и ошибки `400/401/403/404`. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 39 из 58 маршрутов, 18 остаются на legacy и 1 покрыт characterization-тестами. `BUG-003` — частичная запись профиля перед domain-ошибкой — намеренно сохранён и отмечен TODO; схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/admin/teacher-applications`.
+
+### 2026-09-24 — Назначение преподавателя ученику
+
+- **Цель:** пакетом перенести `POST /api/admin/assign-student` и `POST /api/admin/unassign-student` без расхождения административного workflow.
+- **Сделано:** в `AdminModule` добавлены общий body guard, application use case и Prisma repository. Создание/удаление связи, аудит и уведомления обеим сторонам объединены в одну транзакцию; Telegram отправляется преподавателю и ученику после коммита. Сохранены идемпотентные повторы и legacy-правило уровня `barber`; назначение деактивированного преподавателя запрещено согласно `SEC-003`.
+- **Проверка:** legacy — 216 успешных тестов и 6 целевых TODO; NestJS — 251 успешный тест. Characterization и Nest e2e покрывают assign/unassign, повторные вызовы, completed/barber, app- и Telegram-уведомления, аудит, Telegram/web-session, nginx-путь и ошибки `400/401/403/404`. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** оба маршрута получили статус `nest-ready`; теперь готовы 38 из 58 маршрутов, 19 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/admin/update-student`, затем `POST /api/admin/teacher-applications`.
+
+### 2026-09-24 — Управление ролью преподавателя без потери истории
+
+- **Цель:** перенести `POST /api/admin/teachers` и устранить подтверждённый дефект `SEC-003`.
+- **Сделано:** в `AdminModule` добавлены body guard, use case и отдельный Prisma repository. Назначение роли создаёт профиль только при отсутствии, а снятие роли атомарно удаляет роль и назначения, сохраняя профиль и `homework_reviews`; аудит и app-уведомление входят в транзакцию, Telegram отправляется после неё. Admin GET, session, teacher cabinet, review и teacher about теперь считают преподавателя активным только при наличии роли.
+- **Проверка:** legacy — 207 успешных тестов и 6 целевых TODO; NestJS — 246 успешных тестов. Characterization фиксирует прежнее каскадное удаление; Nest e2e проверяет validation/auth, Telegram/web-session, nginx-путь, уведомления, деактивацию, скрытие доступа и повторное назначение с тем же профилем. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 36 из 58 маршрутов, 21 остаётся на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/admin/assign-student` и затем `POST /api/admin/unassign-student`.
+
+### 2026-09-24 — Административная модерация ученика
+
+- **Цель:** перенести `POST /api/admin/students` как первый write-маршрут административного блока.
+- **Сделано:** в `AdminModule` добавлены body guard, отдельный use case и write-repository. Сохранены четыре действия (`approve`, `reject`, `set_studying`, `set_completed`), дедупликация и проверка преподавателей только для approve с непустым массивом, legacy-сообщения и HTTP 200. Prisma-транзакция объединяет назначения, статус, аудит и in-app уведомление; Telegram отправляется общим gateway после коммита.
+- **Проверка:** legacy — 199 успешных тестов и 5 целевых TODO; целевой Nest-набор AdminModule — 26 успешных сценариев. Проверены все переходы, assignment semantics, Telegram/web-session, nginx-путь и ошибки `400/401/403/404`.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 35 из 58 маршрутов, 22 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** согласовать `SEC-003`, затем перенести `POST /api/admin/teachers` без удаления исторических проверок при снятии роли.
+
+### 2026-09-24 — Проверка домашней работы преподавателем
+
+- **Цель:** перенести `POST /api/teacher/review` без потери статусов, прав доступа и побочных эффектов legacy API.
+- **Сделано:** в `TeacherCabinetModule` добавлены body guard и отдельный use case. Prisma repository одной транзакцией блокирует повторную проверку, создаёт review, меняет статус ДЗ, пишет аудит и системное сообщение, создаёт in-app уведомление и одноразовый feedback invite для обычных уроков 5/10/15. Telegram-доставка выполняется после коммита общим gateway; сохранены admin bypass, автоматическое создание teacher-профиля администратора и HTTP 200.
+- **Проверка:** legacy — 190 успешных тестов и 5 целевых TODO; целевой Nest-набор — 24 успешных сценария. Проверены approve/revision, trim комментария, рейтинг, системные сообщения, аудит, уведомления, дедупликация feedback invite, Telegram gateway, web-session, nginx-путь и ошибки `400/401/403/404/409`.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 34 из 58 маршрутов, 23 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/homeworks/:id/comments`, переиспользуя текущую матрицу доступа к работе и уведомления.
+
+### 2026-09-24 — Read-only кабинет преподавателя
+
+- **Цель:** пакетом перенести чтение кабинета преподавателя без изменения legacy-контрактов.
+- **Сделано:** добавлен `TeacherCabinetModule` с отдельными use cases для dashboard, списка учеников и профиля с работами, общим Prisma repository и общей teacher/admin policy. Сохранены назначение учеников, активные статусы, агрегаты рейтинга, pending-фильтр по умолчанию, `include_reviewed`, проверки, комментарии, вложения, Telegram/VK/web-session и nginx-пути.
+- **Проверка:** legacy — 178 успешных тестов и 5 целевых TODO; NestJS — 220 успешных тестов, включая 11 новых сценариев кабинета преподавателя. Проверены преподавательская область, административный доступ, обе формы путей и ошибки `400/401/403/404`.
+- **Вывод:** три маршрута получили статус `nest-ready`; теперь готовы 33 из 58 маршрутов, 24 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** перенести `POST /api/teacher/review` отдельным этапом из-за транзакционной проверки, уведомлений и feedback invite.
+
 ### 2026-09-23 — Пакет административных GET
 
 - **Цель:** одним согласованным этапом перенести все оставшиеся административные read-only маршруты.

@@ -46,21 +46,21 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| GET | `/api/chats/students` | пользователь чата | Доступные чаты учеников | high | covered |
-| GET | `/api/chats/messages` | участник чата | История сообщений | high | legacy |
-| POST | `/api/chats/messages` | участник чата | Multipart-сообщение, файл, уведомления | high | legacy |
-| GET | `/api/chats/messages/:id/file` | участник чата | Локальный или Telegram-файл | high | legacy |
+| GET | `/api/chats/students` | student — свой; teacher — назначенные; admin — все активные | Доступные чаты учеников с исправлением `SEC-002` | high | nest-ready |
+| GET | `/api/chats/messages` | владелец, назначенный преподаватель или администратор | Последние сообщения по возрастанию, роли отправителей и `limit` | high | nest-ready |
+| POST | `/api/chats/messages` | владелец, назначенный преподаватель или администратор | Multipart-сообщение, безопасный файл и атомарные app-уведомления с исправлением `SEC-002` | high | nest-ready |
+| GET | `/api/chats/messages/:id/file` | владелец, назначенный преподаватель или администратор | Безопасный local/Telegram-файл через общий storage boundary | high | nest-ready |
 
 ## Домашние задания и файлы
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/student/homeworks` | Telegram, VK или web-session с существующим student | Только свои работы, все проверки, комментарии, вложения и рейтинг по принятым оценкам | high | nest-ready |
-| POST | `/api/homeworks` | ученик `studying` | Multipart до 5 файлов, защита от дубликата, уведомления | high | legacy |
+| POST | `/api/homeworks` | ученик `studying` | Multipart до 5 файлов, серии только из фото, защита от pending-дубликата, атомарные app-уведомления и best-effort Telegram | high | nest-ready |
 | PATCH | `/api/student/homeworks/:homeworkId` | владелец pending-работы | Редактирование текста и вложений | high | legacy |
 | POST | `/api/student/homeworks/:homeworkId/revision` | владелец revision-работы | Исправление и возврат в pending | high | legacy |
 | POST | `/api/homeworks/:id/comments` | ученик, назначенный преподаватель или администратор | Комментарий и уведомления | high | legacy |
-| POST | `/api/teacher/review` | назначенный преподаватель или администратор | Проверка, статус, рейтинг, чат, уведомления, feedback invite | high | legacy |
+| POST | `/api/teacher/review` | назначенный преподаватель; администратор — любой активный ученик | Транзакционная проверка, статус, рейтинг, системное сообщение, аудит, уведомления и одноразовый feedback invite для уроков 5/10/15 | high | nest-ready |
 | GET | `/api/homeworks/:id/file` | владелец, назначенный преподаватель или администратор | Основной local/Telegram-файл и JPEG-preview после проверки доступа | high | nest-ready |
 | GET | `/api/homeworks/:homeworkId/revision/file` | владелец, назначенный преподаватель или администратор | Local/Telegram-файл исправления и JPEG-preview после проверки доступа | high | nest-ready |
 | GET | `/api/homeworks/:homeworkId/attachments/:attachmentId/file` | владелец, назначенный преподаватель или администратор | Принадлежащее работе дополнительное вложение, local/Telegram-файл и JPEG-preview фото | high | nest-ready |
@@ -92,16 +92,16 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/api/students` | подтверждённая платформенная личность | Регистрация ученика и уведомление администраторов | high | legacy |
-| POST | `/api/teacher-application` | подтверждённая платформенная личность | Заявка преподавателя | high | legacy |
+| POST | `/api/students` | подтверждённая Telegram/VK identity или web-session | Атомарное создание/обновление identity, роли и student-профиля в moderation; уведомления администраторам | high | nest-ready |
+| POST | `/api/teacher-application` | подтверждённая Telegram/VK identity или web-session | Нормализация контактов, создание guest identity, атомарная замена pending-заявки и уведомление администраторов | high | nest-ready |
 | GET | `/api/admin/teacher-applications` | Telegram, VK или web-session; роль admin | Необработанные заявки от новых к старым | medium | nest-ready |
-| POST | `/api/admin/teacher-applications` | администратор | Принятие/отклонение, роль и профиль преподавателя | high | legacy |
+| POST | `/api/admin/teacher-applications` | Telegram, VK или web-session; роль admin | Атомарное принятие/отклонение, роль и профиль преподавателя, аудит и уведомление при approve; сохранённая деактивированная карточка реактивируется по `SEC-003` | high | nest-ready |
 
 ## Конфиденциальная обратная связь
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/api/student/feedback` | ученик | Идемпотентная отправка по `request_key` | high | legacy |
+| POST | `/api/student/feedback` | Telegram, VK или web-session с существующим student | Приватная идемпотентная отправка по паре student + `request_key` | high | nest-ready |
 | GET | `/api/admin/feedback` | Telegram, VK или web-session; роль admin | Cursor-пагинация приватных отзывов по 50 записей | high | nest-ready |
 
 ## Администрирование профилей
@@ -118,21 +118,21 @@
 | GET | `/api/admin/teachers` | Telegram, VK или web-session; роль admin | Преподаватели, последний approved-телефон и активные закреплённые ученики | medium | nest-ready |
 | GET | `/api/admin/students` | Telegram, VK или web-session; роль admin | Точная фильтрация по статусу, рейтинг, pending-счётчик и назначения | medium | nest-ready |
 | GET | `/api/admin/student/:student_id` | Telegram, VK или web-session; роль admin | Полный профиль, рейтинг, назначения, работы, проверки, комментарии и вложения | high | nest-ready |
-| POST | `/api/admin/update-student` | администратор | Уровень, число занятий, полная замена назначений | high | legacy |
-| POST | `/api/admin/students` | администратор | Модерация и смена статуса | high | legacy |
+| POST | `/api/admin/update-student` | Telegram, VK или web-session; роль admin | Частичное обновление уровня/занятий и полная замена назначений; переход в barber снимает связи; временно сохранён partial-write `BUG-003` | high | nest-ready |
+| POST | `/api/admin/students` | Telegram, VK или web-session; роль admin | Транзакционная модерация, смена статуса, назначения при approve, аудит и уведомление ученика | high | nest-ready |
 | GET | `/api/admin/homeworks` | Telegram, VK или web-session; роль admin | Все либо отфильтрованные работы, проверки и вложения | high | nest-ready |
 | GET | `/api/admin/audit` | Telegram, VK или web-session; роль admin | Аудит действий с лимитом 1–200 и raw JSON meta | medium | nest-ready |
-| POST | `/api/admin/teachers` | администратор | Назначение или снятие роли преподавателя | high | legacy |
-| POST | `/api/admin/assign-student` | администратор | Закрепление ученика | high | legacy |
-| POST | `/api/admin/unassign-student` | администратор | Снятие закрепления | high | legacy |
+| POST | `/api/admin/teachers` | Telegram, VK или web-session; роль admin | Назначение роли и профиля; при снятии — удаление роли и активных назначений без потери профиля и проверок | high | nest-ready |
+| POST | `/api/admin/assign-student` | Telegram, VK или web-session; роль admin | Идемпотентное закрепление активного преподавателя за studying/completed-учеником, аудит и уведомления обеим сторонам; для уровня barber связь не создаётся | high | nest-ready |
+| POST | `/api/admin/unassign-student` | Telegram, VK или web-session; роль admin | Идемпотентное снятие закрепления, аудит и уведомления обеим сторонам | high | nest-ready |
 
 ## Кабинет преподавателя
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| GET | `/api/teacher/dashboard` | преподаватель или администратор | Pending-работы и краткая статистика | medium | legacy |
-| GET | `/api/teacher/student-homeworks` | назначенный преподаватель или администратор | Профиль и работы ученика | high | legacy |
-| GET | `/api/teacher/students` | преподаватель или администратор | Список учеников и статистика | medium | legacy |
+| GET | `/api/teacher/dashboard` | преподаватель — только назначенные активные ученики; администратор без teacher-профиля — все активные | Pending-работы и краткая статистика | medium | nest-ready |
+| GET | `/api/teacher/student-homeworks` | назначенный преподаватель; администратор без teacher-профиля — любой активный ученик | Профиль, рейтинг, работы, проверки, комментарии и вложения; по умолчанию только pending | high | nest-ready |
+| GET | `/api/teacher/students` | преподаватель — только назначенные активные ученики; администратор без teacher-профиля — все активные | Список учеников, преподаватели, рейтинг и число pending-работ | medium | nest-ready |
 
 ## Общие зависимости legacy
 
