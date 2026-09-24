@@ -27,13 +27,13 @@
 
 | Метод | Путь | Доступ | Основная логика | Риск | Статус |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/api/web-auth/start` | публичный | Одноразовый запрос входа, Telegram/VK handoff URL | high | legacy |
-| GET | `/api/web-auth/status` | одноразовый токен | Polling подтверждения и выпуск web-session | high | legacy |
-| POST | `/api/web-auth/confirm/vk` | подписанные VK launch params | Подтверждение VK-входа | high | legacy |
-| POST | `/api/web-auth/logout` | web-session | Удаление сессии | medium | legacy |
-| GET | `/api/web-auth/session` | web-session | Проверка сессии сайта | medium | legacy |
-| POST | `/api/account/vk-link-token` | Telegram | Четырёхзначный код привязки | high | legacy |
-| POST | `/api/account/vk-link-confirm` | VK | Связывание Telegram- и VK-идентичностей | high | legacy |
+| POST | `/api/web-auth/start` | публичный | Одноразовый запрос входа, Telegram/VK handoff URL | high | nest-ready |
+| GET | `/api/web-auth/status` | одноразовый токен | Polling подтверждения и выпуск web-session | high | nest-ready |
+| POST | `/api/web-auth/confirm/vk` | подписанные VK launch params | Подтверждение VK-входа | high | nest-ready |
+| POST | `/api/web-auth/logout` | web-session | Удаление сессии | medium | nest-ready |
+| GET | `/api/web-auth/session` | web-session | Проверка сессии сайта | medium | nest-ready |
+| POST | `/api/account/vk-link-token` | Telegram | Четырёхзначный код привязки | high | nest-ready |
+| POST | `/api/account/vk-link-confirm` | VK | Связывание Telegram- и VK-идентичностей | high | nest-ready |
 
 ## Уведомления
 
@@ -57,9 +57,9 @@
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/student/homeworks` | Telegram, VK или web-session с существующим student | Только свои работы, все проверки, комментарии, вложения и рейтинг по принятым оценкам | high | nest-ready |
 | POST | `/api/homeworks` | ученик `studying` | Multipart до 5 файлов, серии только из фото, защита от pending-дубликата, атомарные app-уведомления и best-effort Telegram | high | nest-ready |
-| PATCH | `/api/student/homeworks/:homeworkId` | владелец pending-работы | Редактирование текста и вложений | high | legacy |
-| POST | `/api/student/homeworks/:homeworkId/revision` | владелец revision-работы | Исправление и возврат в pending | high | legacy |
-| POST | `/api/homeworks/:id/comments` | ученик, назначенный преподаватель или администратор | Комментарий и уведомления | high | legacy |
+| PATCH | `/api/student/homeworks/:homeworkId` | владелец pending-работы | Редактирование текста и вложений | high | nest-ready |
+| POST | `/api/student/homeworks/:homeworkId/revision` | владелец revision-работы | Исправление и возврат в pending | high | nest-ready |
+| POST | `/api/homeworks/:id/comments` | ученик, назначенный преподаватель или администратор | Комментарий и уведомления | high | nest-ready |
 | POST | `/api/teacher/review` | назначенный преподаватель; администратор — любой активный ученик | Транзакционная проверка, статус, рейтинг, системное сообщение, аудит, уведомления и одноразовый feedback invite для уроков 5/10/15 | high | nest-ready |
 | GET | `/api/homeworks/:id/file` | владелец, назначенный преподаватель или администратор | Основной local/Telegram-файл и JPEG-preview после проверки доступа | high | nest-ready |
 | GET | `/api/homeworks/:homeworkId/revision/file` | владелец, назначенный преподаватель или администратор | Local/Telegram-файл исправления и JPEG-preview после проверки доступа | high | nest-ready |

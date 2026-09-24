@@ -8,7 +8,7 @@ import {
   type AdminStudentDetail,
   type AdminStudentTeacher,
 } from './admin-read.repository.js'
-import type { AdminStudentStatus } from './admin-read.request.js'
+import type { AdminStudentStatusFilter } from './admin-read.request.js'
 
 const homeworkSelect = {
   id: true,
@@ -297,9 +297,9 @@ export class PrismaAdminReadRepository implements AdminReadRepository {
     }))
   }
 
-  async listStudents(status: AdminStudentStatus): Promise<AdminStudent[]> {
+  async listStudents(status: AdminStudentStatusFilter): Promise<AdminStudent[]> {
     const rows = await this.prisma.students.findMany({
-      where: { status },
+      where: status === 'active' ? { status: { in: ['studying', 'completed'] } } : { status },
       orderBy: ['moderation', 'rejected'].includes(status)
         ? { created_at: 'desc' }
         : { full_name: 'asc' },

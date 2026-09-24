@@ -8,7 +8,7 @@
 
 - Клиент: vanilla JavaScript, CSS, Vite 7 (`src/`); один билд выбирает Telegram/VK по launch-параметрам.
 - Сервер: Node.js (ES modules), Fastify 5, Zod, `@fastify/cors`, `@fastify/multipart`.
-- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); `/health`, `/api/session`, публичное портфолио, авторизованная витрина, уведомления, чтение работ ученика и чатов, чтение/загрузка аватаров, описания и отправка/административное чтение заявок профилей, а также авторизованные файлы работы и чата готовы к точечному переключению, production продолжает обслуживать legacy API.
+- Новый backend: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`). Все 58 маршрутов legacy API реализованы и имеют статус `nest-ready`; production продолжает обслуживать legacy API до переключения routing. Telegram-бот перенесён в `backend/src/messenger/` (отдельный процесс `bot-main.ts`, мессенджер-независимые сценарии и адаптеры; следующий — MAX); legacy `bot/registrationBot.js` остаётся до переключения.
 - Бот: `node-telegram-bot-api`.
 - Данные: SQLite через `better-sqlite3`; изображения обрабатывает `sharp`.
 - Прод: PM2 и nginx (маршрутизация `/api` поддерживает сценарий, где nginx срезает префикс).
@@ -90,12 +90,14 @@ npm run bot       # Telegram-бот
 npm test          # characterization-тесты legacy API в изолированной временной копии
 npm run backend:dev    # NestJS на 127.0.0.1:8788
 npm run backend:build  # TypeScript-сборка NestJS
+npm --prefix backend run start:bot:dev  # бот NestJS (нужны BOT_TOKEN и DATABASE_URL)
 npm --prefix frontend run dev        # новый клиент на 5174 (в разработке)
 npm --prefix frontend run visual:test:next  # новый клиент против эталонов legacy
 npm run lint
 npm run build
 ```
 
+- **Docker (новый стек):** `cp .env.docker.example .env.docker`, заполнить значения, `docker compose up --build`. Сервисы: `api` (NestJS, при старте создаёт схему SQLite legacy-миграциями, если базы нет), `bot` (тот же образ, `node dist/bot-main.js`), `web` (nginx со статикой React-клиента и прокси `/api` → `api`, порт `WEB_PORT`, по умолчанию 8080). База и `uploads` лежат в томе `barber-data`. Legacy `src/` и `bot/` в контейнерах не используются.
 - Для локальной проверки API без Telegram-подписи: `TG_WEBAPP_AUTH=off npm run api`.
 - Для визуального локального предпросмотра в обычном браузере запустить API в этом режиме и открыть Vite по адресу `http://127.0.0.1:5173/?preview=1`. Этот режим существует только в Vite-разработке, использует тестовый идентификатор и не доступен в production-сборке.
 - Управление локальными данными: `npm run db`, `npm run db:users`, `npm run db:backup`; выдача ролей — `npm run setup:admin` и `npm run setup:teacher`.
@@ -125,6 +127,7 @@ npm run build
 - `npm test` запускает characterization-тесты legacy API и e2e-тесты NestJS. Legacy-тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
 - Проверка NestJS отдельно: `npm run test:backend`, `npm --prefix backend run typecheck`, `npm run backend:build`.
 - Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичное портфолио, showcase, уведомления, работы, read-маршруты чата, профили student/teacher и аватары ученика, включая profile-edit транзакцию и уведомления, multipart-загрузку, cleanup, approved-only доступ, ролевую матрицу файлов, preview, credential-проверку, retention и изоляцию по user ID.
+- `VISUAL_BACKEND=split npm --prefix frontend run visual:test` прогоняет тот же набор через split-routing: маршруты `nest-ready` обслуживает NestJS, остальные — legacy; `VISUAL_BACKEND=split npm --prefix frontend run compare -- <роль>` открывает клиенты на этой связке.
 - `npm --prefix frontend run visual:test` сравнивает legacy-клиент с 266 эталонными скриншотами на изолированном legacy API и отдельной SQLite (`frontend/README.md`). Эталоны — критерий «1 в 1» для нового клиента.
 - `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
 - `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.

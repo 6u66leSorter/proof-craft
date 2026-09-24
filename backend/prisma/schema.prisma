@@ -2,6 +2,8 @@ generator client {
   provider        = "prisma-client"
   output          = "../src/generated/prisma"
   previewFeatures = ["partialIndexes"]
+  // Явно: иначе расширение импортов выводится из tsconfig и без него (например, при сборке образа) становится .ts.
+  importFileExtension = "js"
 }
 
 datasource db {

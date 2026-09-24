@@ -1,4 +1,4 @@
-import type { AdminStudentStatus } from './admin-read.request.js'
+import type { AdminStudentStatusFilter } from './admin-read.request.js'
 
 export type AdminTeacherApplication = {
   id: number
@@ -110,7 +110,7 @@ export abstract class AdminReadRepository {
   abstract listPendingTeacherApplications(): Promise<AdminTeacherApplication[]>
   abstract listFeedback(before?: number): Promise<AdminFeedback[]>
   abstract listTeachers(): Promise<AdminTeacher[]>
-  abstract listStudents(status: AdminStudentStatus): Promise<AdminStudent[]>
+  abstract listStudents(status: AdminStudentStatusFilter): Promise<AdminStudent[]>
   abstract findStudent(studentId: number): Promise<AdminStudentDetail | null>
   abstract listHomeworks(studentId: number | null): Promise<AdminHomework[]>
   abstract listAudit(limit: number): Promise<AdminAuditEntry[]>

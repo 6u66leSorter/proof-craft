@@ -96,6 +96,37 @@ export type CreateHomeworkSubmissionResult =
   | { kind: 'duplicate' }
   | { kind: 'created'; homework: SubmittedHomework }
 
+export type SubmitRevisionCommand = {
+  studentId: number
+  homeworkId: number
+  text: string
+  /** Новый файл исправления; null — прежний файл сохраняется (legacy COALESCE). */
+  revisionFileId: string | null
+  updatedAt: string
+  notificationBody: string
+  recipientUserIds: number[]
+}
+
+/** Порядок проверок legacy: работа ученика → статус «на доработке» → непустой текст. */
+export type SubmitRevisionResult = 'submitted' | 'not_found' | 'not_revision' | 'no_text'
+
+export type EditPendingHomeworkCommand = {
+  studentId: number
+  homeworkId: number
+  /** undefined — поле не передано и не меняется; пустая строка сохраняется как NULL. */
+  textContent: string | undefined
+  haircutName: string | undefined
+  removePrimary: boolean
+  removeAttachmentIds: number[]
+  newAttachments: HomeworkSubmissionFile[]
+  updatedAt: string
+}
+
+export type EditPendingHomeworkResult = 'edited' | 'not_found' | 'not_pending'
+
+/** Строка работы как её отдаёт legacy `getHomeworkById`: все колонки `homeworks` плюс данные ученика. */
+export type RawHomeworkRow = Record<string, unknown> & { file_id: string | null }
+
 export abstract class StudentHomeworksRepository {
   abstract findByUserId(userId: number): Promise<StudentHomeworksSnapshot | null>
   abstract findSubmissionStudent(userId: number): Promise<HomeworkSubmissionStudent | null>
@@ -107,4 +138,9 @@ export abstract class StudentHomeworksRepository {
   abstract createSubmission(
     command: CreateHomeworkSubmissionCommand,
   ): Promise<CreateHomeworkSubmissionResult>
+  abstract submitRevision(command: SubmitRevisionCommand): Promise<SubmitRevisionResult>
+  abstract findHomeworkOwner(homeworkId: number): Promise<{ studentId: number; status: string } | null>
+  abstract editPendingHomework(command: EditPendingHomeworkCommand): Promise<EditPendingHomeworkResult>
+  abstract findRawHomework(homeworkId: number): Promise<RawHomeworkRow | null>
+  abstract listAttachments(homeworkId: number): Promise<Array<{ id: number; contentType: string; fileId: string }>>
 }

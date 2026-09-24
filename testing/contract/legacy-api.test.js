@@ -650,6 +650,7 @@ before(async () => {
       VK_APP_ID: '54558405',
       VK_APP_SECRET: testVkSecret,
       VK_ID_OFFSET: '10000000000',
+      TELEGRAM_BOT_USERNAME: 'contract_academy_bot',
       MAX_HOMEWORK_UPLOAD_MB: '0.001',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -4705,3 +4706,478 @@ test.todo('SEC-003: снятие роли преподавателя должн�
 test.todo('BUG-001: admin/students должен точно фильтровать studying и completed')
 test.todo('BUG-002: обработка profile edit должна уведомлять ученика')
 test.todo('BUG-003: admin/update-student должен быть атомарным при domain-ошибке')
+
+const readCommentState = (homeworkId) => {
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const comment = db.prepare(`
+    SELECT hc.text_content, u.telegram_id AS author_telegram_id
+    FROM homework_comments hc JOIN users u ON u.id = hc.author_user_id
+    WHERE hc.homework_id = ? ORDER BY hc.id DESC LIMIT 1
+  `).get(homeworkId)
+  const notification = db.prepare(`
+    SELECT u.telegram_id, n.kind, n.body, n.payload
+    FROM app_notifications n JOIN users u ON u.id = n.user_id
+    ORDER BY n.id DESC LIMIT 1
+  `).get()
+  const notificationCount = db.prepare('SELECT COUNT(*) AS count FROM app_notifications').get().count
+  db.close()
+  return { comment, notification, notificationCount }
+}
+
+test('POST homeworks/:id/comments: ответ ученика уведомляет его преподавателей', async () => {
+  const { response, body } = await postJson(
+    `/api/homeworks/${fixtureIds.pendingHomeworkId}/comments`,
+    { telegram_id: 3001, text_content: '  Вопрос по окантовке  ' },
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+  const state = readCommentState(fixtureIds.pendingHomeworkId)
+  assert.deepEqual(state.comment, { text_content: 'Вопрос по окантовке', author_telegram_id: 3001 })
+  assert.deepEqual(state.notification, {
+    telegram_id: 2001,
+    kind: 'homework_comment_reply',
+    body: 'Ученик ответил на комментарий к домашнему заданию.',
+    payload: JSON.stringify({ homework_id: fixtureIds.pendingHomeworkId, student_id: fixtureIds.studentOneId }),
+  })
+})
+
+test('POST homeworks/:id/comments: комментарий преподавателя уведомляет ученика, администратора — нет', async () => {
+  const teacher = await postJson(
+    `/api/homeworks/${fixtureIds.pendingHomeworkId}/comments`,
+    { telegram_id: 2001, text_content: 'Подровняйте контур' },
+    2001,
+  )
+  assert.equal(teacher.response.status, 200)
+  const afterTeacher = readCommentState(fixtureIds.pendingHomeworkId)
+  assert.deepEqual(afterTeacher.comment, { text_content: 'Подровняйте контур', author_telegram_id: 2001 })
+  assert.deepEqual(afterTeacher.notification, {
+    telegram_id: 3001,
+    kind: 'homework_comment',
+    body: 'Преподаватель оставил комментарий к вашему домашнему заданию.',
+    payload: JSON.stringify({ homework_id: fixtureIds.pendingHomeworkId, student_id: fixtureIds.studentOneId }),
+  })
+
+  const admin = await postJson(
+    `/api/homeworks/${fixtureIds.pendingHomeworkId}/comments`,
+    { telegram_id: 1001, text_content: 'Комментарий администратора' },
+    1001,
+  )
+  assert.equal(admin.response.status, 200)
+  const afterAdmin = readCommentState(fixtureIds.pendingHomeworkId)
+  assert.equal(afterAdmin.comment.author_telegram_id, 1001)
+  assert.equal(afterAdmin.notificationCount, afterTeacher.notificationCount)
+})
+
+test('POST homeworks/:id/comments сохраняет validation, access и not-found ошибки', async () => {
+  const path = `/api/homeworks/${fixtureIds.pendingHomeworkId}/comments`
+  const invalidId = await postJson('/api/homeworks/abc/comments', { telegram_id: 3001, text_content: 'x' }, 3001)
+  const empty = await postJson(path, { telegram_id: 3001, text_content: '   ' }, 3001)
+  const tooLong = await postJson(path, { telegram_id: 3001, text_content: 'x'.repeat(2001) }, 3001)
+  const unknown = await postJson('/api/homeworks/999999/comments', { telegram_id: 3001, text_content: 'x' }, 3001)
+  const stranger = await postJson(path, { telegram_id: 3002, text_content: 'x' }, 3002)
+  const unsigned = await postJson(path, { telegram_id: 3001, text_content: 'x' })
+  const invalid = { ok: false, error: 'Некорректные параметры запроса.' }
+  assert.deepEqual([invalidId.response.status, invalidId.body], [400, invalid])
+  assert.deepEqual([empty.response.status, empty.body], [400, invalid])
+  assert.deepEqual([tooLong.response.status, tooLong.body], [400, invalid])
+  assert.deepEqual([unknown.response.status, unknown.body], [404, { ok: false, error: 'Домашнее задание не найдено.' }])
+  assert.deepEqual([stranger.response.status, stranger.body], [403, { ok: false, error: 'Нет доступа к этому заданию.' }])
+  assert.equal(unsigned.response.status, 401)
+})
+
+const createRevisionHomework = (studentId = fixtureIds.studentOneId, revisionFileId = null) => {
+  const db = new Database(legacyDatabasePath)
+  const homeworkId = Number(db.prepare(`
+    INSERT INTO homeworks (student_id, lesson_number, is_bonus, content_type, text_content, status, haircut_name, revision_student_file_id)
+    VALUES (?, 7, 0, 'text', 'Работа для исправления', 'revision', 'Андеркат', ?)
+  `).run(studentId, revisionFileId).lastInsertRowid)
+  db.close()
+  return homeworkId
+}
+
+const readRevisionState = (homeworkId) => {
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const homework = db.prepare(`
+    SELECT status, revision_student_text, revision_student_file_id FROM homeworks WHERE id = ?
+  `).get(homeworkId)
+  const notifications = db.prepare(`
+    SELECT u.telegram_id, n.kind, n.body, n.payload FROM app_notifications n
+    JOIN users u ON u.id = n.user_id WHERE n.payload LIKE ? ORDER BY n.id
+  `).all(`%"homework_id":${homeworkId}}%`)
+  db.close()
+  return { homework, notifications }
+}
+
+test('POST student/homeworks/:id/revision сохраняет исправление с фото и уведомляет команду', async () => {
+  const homeworkId = createRevisionHomework()
+  const { response, body } = await postMultipart(
+    `/api/student/homeworks/${homeworkId}/revision`,
+    { telegram_id: 3001, revision_text: '  Поправила окантовку  ' },
+    3001,
+    { name: 'fix.svg', type: 'image/svg+xml', content: testImageSvg },
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.ok, true)
+  const homework = body.data.homework
+  assert.equal(homework.id, homeworkId)
+  assert.equal(homework.status, 'pending')
+  assert.equal(homework.revision_student_text, 'Поправила окантовку')
+  assert.equal(homework.revision_has_local_file, true)
+  // В отличие от списка работ, ответ не содержит review_count: getHomeworkById его не выбирает.
+  assert.deepEqual(Object.keys(homework).sort(), [
+    'attachments', 'comments', 'content_type', 'created_at', 'extra_files_count', 'file_id', 'haircut_name',
+    'has_local_file', 'has_telegram_file', 'id', 'is_bonus', 'latest_review', 'lesson_number',
+    'reviews', 'revision_has_local_file', 'revision_has_telegram_file', 'revision_student_text', 'status',
+    'student_id', 'text_content',
+  ])
+  const state = readRevisionState(homeworkId)
+  assert.equal(state.homework.status, 'pending')
+  assert.match(state.homework.revision_student_file_id, /\.jpg$/)
+  const text = 'Ученик Анна Ученица отправил исправление по урок №7.'
+  const payload = JSON.stringify({ student_id: fixtureIds.studentOneId, homework_id: homeworkId })
+  assert.deepEqual(state.notifications, [
+    { telegram_id: 2001, kind: 'homework_revision', body: text, payload },
+    { telegram_id: 1001, kind: 'homework_revision', body: text, payload },
+  ])
+})
+
+test('POST student/homeworks/:id/revision без фото сохраняет прежний файл исправления', async () => {
+  const homeworkId = createRevisionHomework(fixtureIds.studentOneId, fixtureIds.revisionFilePath)
+  const { response, body } = await postMultipart(
+    `/api/student/homeworks/${homeworkId}/revision`,
+    { telegram_id: 3001, text: 'Только текст' },
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.equal(body.data.homework.revision_student_text, 'Только текст')
+  assert.equal(readRevisionState(homeworkId).homework.revision_student_file_id, fixtureIds.revisionFilePath)
+})
+
+test('POST student/homeworks/:id/revision сохраняет validation, access и state ошибки', async () => {
+  const homeworkId = createRevisionHomework()
+  const path = `/api/student/homeworks/${homeworkId}/revision`
+  const invalidId = await postMultipart('/api/student/homeworks/abc/revision', { telegram_id: 3001, text: 'x' }, 3001)
+  const noTelegram = await postMultipart(path, { text: 'x' }, 3001)
+  const noText = await postMultipart(path, { telegram_id: 3001, text: '   ' }, 3001)
+  const notImage = await postMultipart(path, { telegram_id: 3001, text: 'x' }, 3001, { name: 'fix.txt', type: 'text/plain', content: 'text' })
+  const foreign = await postMultipart(`/api/student/homeworks/${createRevisionHomework(fixtureIds.studentTwoId)}/revision`, { telegram_id: 3001, text: 'x' }, 3001)
+  const notRevision = await postMultipart(`/api/student/homeworks/${fixtureIds.pendingHomeworkId}/revision`, { telegram_id: 3001, text: 'x' }, 3001)
+  const unsigned = await postMultipart(path, { telegram_id: 3001, text: 'x' })
+  assert.deepEqual([invalidId.response.status, invalidId.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+  assert.deepEqual([noTelegram.response.status, noTelegram.body], [400, { ok: false, error: 'Передайте telegram_id.' }])
+  assert.deepEqual([noText.response.status, noText.body], [400, { ok: false, error: 'Опишите, что вы исправили.' }])
+  assert.deepEqual([notImage.response.status, notImage.body], [400, { ok: false, error: 'К исправлению можно прикрепить только изображение.' }])
+  assert.deepEqual([foreign.response.status, foreign.body], [404, { ok: false, error: 'Работа не найдена.' }])
+  assert.deepEqual([notRevision.response.status, notRevision.body], [400, { ok: false, error: 'Исправление доступно только для работ со статусом «нужна доработка».' }])
+  assert.equal(unsigned.response.status, 401)
+  assert.equal(readRevisionState(homeworkId).homework.status, 'revision')
+})
+
+const patchMultipart = async (path, fields, telegramUserId = null, files = []) => {
+  const body = new FormData()
+  for (const [key, value] of Object.entries(fields)) body.set(key, String(value))
+  for (const item of files) {
+    body.append(item.field ?? 'files', new Blob([item.content], { type: item.type }), item.name)
+  }
+  const headers = telegramUserId == null ? {} : { 'X-Telegram-Init-Data': buildTelegramInitData(telegramUserId) }
+  const response = await fetch(`${baseUrl}${path}`, { method: 'PATCH', headers, body })
+  return { response, body: await response.json() }
+}
+
+const createEditableHomework = (studentId = fixtureIds.studentOneId, status = 'pending') => {
+  const db = new Database(legacyDatabasePath)
+  const homeworkId = Number(db.prepare(`
+    INSERT INTO homeworks (student_id, lesson_number, is_bonus, content_type, file_id, text_content, status, haircut_name, created_at, updated_at)
+    VALUES (?, 8, 0, 'photo', ?, 'Исходное описание', ?, 'Исходная стрижка', '2026-09-24 09:00:00', '2026-09-24 09:00:00')
+  `).run(studentId, fixtureIds.pendingFilePath, status).lastInsertRowid)
+  const insertFile = db.prepare(`
+    INSERT INTO homework_files (homework_id, file_id, content_type, sort_order) VALUES (?, ?, 'photo', ?)
+  `)
+  const keepId = Number(insertFile.run(homeworkId, fixtureIds.revisionFilePath, 1).lastInsertRowid)
+  const removeId = Number(insertFile.run(homeworkId, fixtureIds.approvedFilePath, 2).lastInsertRowid)
+  db.close()
+  return { homeworkId, keepId, removeId }
+}
+
+const readEditableState = (homeworkId) => {
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const homework = db.prepare('SELECT file_id, text_content, haircut_name, updated_at FROM homeworks WHERE id = ?').get(homeworkId)
+  const files = db.prepare('SELECT id, file_id, content_type, sort_order FROM homework_files WHERE homework_id = ? ORDER BY sort_order').all(homeworkId)
+  db.close()
+  return { homework, files }
+}
+
+test('PATCH student/homeworks/:id правит поля, удаляет и добавляет фото pending-работы', async () => {
+  const { homeworkId, keepId, removeId } = createEditableHomework()
+  const { response, body } = await patchMultipart(`/api/student/homeworks/${homeworkId}`, {
+    telegram_id: 3001,
+    haircut_name: '  Новая стрижка ',
+    text_content: '',
+    remove_primary: '1',
+    remove_attachment_ids: JSON.stringify([removeId]),
+  }, 3001, [{ name: 'new.svg', type: 'image/svg+xml', content: testImageSvg }])
+  assert.equal(response.status, 200)
+  const homework = body.data.homework
+  assert.deepEqual(Object.keys(homework), [
+    'id', 'student_id', 'lesson_number', 'is_bonus', 'content_type', 'file_id', 'text_content', 'status', 'created_at',
+    'updated_at', 'haircut_name', 'revision_student_text', 'revision_student_file_id', 'student_name', 'student_user_id',
+    'student_telegram_id', 'has_local_file', 'has_telegram_file', 'extra_files_count', 'attachments',
+  ])
+  assert.deepEqual({ ...homework, updated_at: 'X', attachments: homework.attachments.map(({ id, ...rest }) => rest) }, {
+    id: homeworkId,
+    student_id: fixtureIds.studentOneId,
+    lesson_number: 8,
+    is_bonus: 0,
+    content_type: 'photo',
+    file_id: null,
+    text_content: null,
+    status: 'pending',
+    created_at: '2026-09-24 09:00:00',
+    updated_at: 'X',
+    haircut_name: '  Новая стрижка ',
+    revision_student_text: null,
+    revision_student_file_id: null,
+    student_name: 'Анна Ученица',
+    student_user_id: homework.student_user_id,
+    student_telegram_id: 3001,
+    has_local_file: false,
+    has_telegram_file: false,
+    extra_files_count: 2,
+    attachments: [
+      { content_type: 'photo', has_local_file: true, has_telegram_file: false },
+      { content_type: 'photo', has_local_file: true, has_telegram_file: false },
+    ],
+  })
+  assert.notEqual(homework.updated_at, '2026-09-24 09:00:00')
+  const state = readEditableState(homeworkId)
+  assert.equal(state.files[0].id, keepId)
+  assert.equal(state.files.length, 2)
+  assert.equal(state.files[1].content_type, 'photo')
+  assert.equal(state.files[1].sort_order, 2)
+  assert.match(state.files[1].file_id, /\.jpg$/)
+  // Legacy удаляет только строки: файл удалённого вложения остаётся на диске.
+  assert.ok(existsSync(fixtureIds.approvedFilePath))
+})
+
+test('PATCH student/homeworks/:id без полей не меняет текст и название, некорректный remove_attachment_ids игнорируется', async () => {
+  const { homeworkId } = createEditableHomework()
+  const { response } = await patchMultipart(`/api/student/homeworks/${homeworkId}`, {
+    telegram_id: 3001,
+    remove_attachment_ids: '{broken',
+  }, 3001)
+  assert.equal(response.status, 200)
+  const state = readEditableState(homeworkId)
+  assert.equal(state.homework.text_content, 'Исходное описание')
+  assert.equal(state.homework.haircut_name, 'Исходная стрижка')
+  assert.equal(state.homework.file_id, fixtureIds.pendingFilePath)
+  assert.equal(state.files.length, 2)
+})
+
+test('PATCH student/homeworks/:id сохраняет validation, access и state ошибки', async () => {
+  const { homeworkId } = createEditableHomework()
+  const path = `/api/student/homeworks/${homeworkId}`
+  const invalidId = await patchMultipart('/api/student/homeworks/abc', { telegram_id: 3001 }, 3001)
+  const noTelegram = await patchMultipart(path, {}, 3001)
+  const foreign = await patchMultipart(`/api/student/homeworks/${createEditableHomework(fixtureIds.studentTwoId).homeworkId}`, { telegram_id: 3001 }, 3001)
+  const reviewed = await patchMultipart(`/api/student/homeworks/${createEditableHomework(fixtureIds.studentOneId, 'approved').homeworkId}`, { telegram_id: 3001 }, 3001)
+  const unsigned = await patchMultipart(path, { telegram_id: 3001 })
+  const tooMany = await patchMultipart(path, { telegram_id: 3001 }, 3001, Array.from({ length: 6 }, (_, i) => ({ name: `${i}.svg`, type: 'image/svg+xml', content: testImageSvg })))
+  assert.deepEqual([invalidId.response.status, invalidId.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+  assert.deepEqual([noTelegram.response.status, noTelegram.body], [400, { ok: false, error: 'Передайте telegram_id.' }])
+  assert.deepEqual([foreign.response.status, foreign.body], [404, { ok: false, error: 'Задание не найдено.' }])
+  assert.deepEqual([reviewed.response.status, reviewed.body], [403, { ok: false, error: 'Редактировать можно только задания, ещё не проверенные преподавателем.' }])
+  assert.equal(unsigned.response.status, 401)
+  assert.deepEqual([tooMany.response.status, tooMany.body], [500, { ok: false, error: 'Внутренняя ошибка сервера.' }])
+})
+
+
+const webAuthDb = (fn) => {
+  const db = new Database(legacyDatabasePath)
+  try {
+    return fn(db)
+  } finally {
+    db.close()
+  }
+}
+const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex')
+const approveLoginAs = (token, telegramId) => webAuthDb((db) => db.prepare(`
+  UPDATE web_login_requests SET user_id = (SELECT id FROM users WHERE telegram_id = ?), approved_at = datetime('now')
+  WHERE token_hash = ?
+`).run(telegramId, tokenHash(token)))
+
+const vkPost = async (path, vkUserId, launchParams) => {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'X-Client-Platform': 'vk', 'X-VK-User-Id': String(vkUserId), 'X-VK-Launch-Params': launchParams },
+  })
+  return { response, body: await response.json() }
+}
+
+test('POST web-auth/start выдаёт одноразовый токен и ссылку для Telegram и VK', async () => {
+  const telegram = await postJson('/api/web-auth/start', { provider: 'telegram' })
+  assert.equal(telegram.response.status, 200)
+  assert.match(telegram.body.data.token, /^[A-Za-z0-9_-]{43}$/)
+  assert.equal(telegram.body.data.handoff_url, `https://t.me/contract_academy_bot?start=webauth_${telegram.body.data.token}`)
+  assert.equal(telegram.body.data.expires_in_seconds, 900)
+  const vk = await postJson('/api/web-auth/start', { provider: 'vk' })
+  assert.equal(vk.body.data.handoff_url, `https://vk.com/app54558405?web_login=${vk.body.data.token}`)
+  const row = webAuthDb((db) => db.prepare(`
+    SELECT provider, user_id, (julianday(expires_at) - julianday('now')) * 1440 AS minutes
+    FROM web_login_requests WHERE token_hash = ?
+  `).get(tokenHash(vk.body.data.token)))
+  assert.equal(row.provider, 'vk')
+  assert.equal(row.user_id, null)
+  assert.ok(row.minutes > 14.9 && row.minutes <= 15)
+  const invalid = await postJson('/api/web-auth/start', { provider: 'email' })
+  assert.deepEqual([invalid.response.status, invalid.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+})
+
+test('GET web-auth/status: pending, approved с выпуском сессии ровно один раз и истёкший токен', async () => {
+  const { body } = await postJson('/api/web-auth/start', { provider: 'telegram' })
+  const token = body.data.token
+  const pending = await getJson(`/api/web-auth/status?token=${token}`)
+  assert.deepEqual([pending.response.status, pending.body], [200, { ok: true, data: { status: 'pending' } }])
+  approveLoginAs(token, 3001)
+  const approved = await getJson(`/api/web-auth/status?token=${token}`)
+  assert.equal(approved.response.status, 200)
+  assert.equal(approved.body.data.status, 'approved')
+  assert.equal(approved.body.data.telegram_id, 3001)
+  assert.match(approved.body.data.session_token, /^[A-Za-z0-9_-]{43}$/)
+  const session = webAuthDb((db) => db.prepare(`
+    SELECT u.telegram_id, (julianday(ws.expires_at) - julianday('now')) AS days
+    FROM web_sessions ws JOIN users u ON u.id = ws.user_id WHERE ws.token_hash = ?
+  `).get(tokenHash(approved.body.data.session_token)))
+  assert.equal(session.telegram_id, 3001)
+  assert.ok(session.days > 13.99 && session.days <= 14)
+  const reused = await getJson(`/api/web-auth/status?token=${token}`)
+  assert.deepEqual([reused.response.status, reused.body], [410, { ok: false, error: 'Время подтверждения входа истекло. Начните заново.' }])
+  const short = await getJson('/api/web-auth/status?token=short')
+  assert.deepEqual([short.response.status, short.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+})
+
+test('GET web-auth/session и POST web-auth/logout проверяют и удаляют web-сессию', async () => {
+  const { body } = await postJson('/api/web-auth/start', { provider: 'telegram' })
+  approveLoginAs(body.data.token, 2001)
+  const { body: approved } = await getJson(`/api/web-auth/status?token=${body.data.token}`)
+  const sessionToken = approved.data.session_token
+  const check = await fetch(`${baseUrl}/api/web-auth/session`, { headers: { 'X-Web-Session': sessionToken } })
+  assert.deepEqual([check.status, await check.json()], [200, { ok: true, data: { telegram_id: 2001 } }])
+  const logout = await fetch(`${baseUrl}/api/web-auth/logout`, { method: 'POST', headers: { 'X-Web-Session': sessionToken } })
+  assert.deepEqual([logout.status, await logout.json()], [200, { ok: true }])
+  const after = await fetch(`${baseUrl}/api/web-auth/session`, { headers: { 'X-Web-Session': sessionToken } })
+  assert.deepEqual([after.status, await after.json()], [401, { ok: false, error: 'Сессия сайта истекла. Войдите снова.' }])
+  const anonymousLogout = await fetch(`${baseUrl}/api/web-auth/logout`, { method: 'POST' })
+  assert.deepEqual([anonymousLogout.status, await anonymousLogout.json()], [200, { ok: true }])
+})
+
+test('POST web-auth/confirm/vk подтверждает вход по подписанным параметрам один раз', async () => {
+  const { body } = await postJson('/api/web-auth/start', { provider: 'vk' })
+  const path = `/api/web-auth/confirm/vk?token=${body.data.token}`
+  const unsigned = await vkPost(path, 7001, 'vk_user_id=7001&sign=broken')
+  assert.deepEqual([unsigned.response.status, unsigned.body], [401, { ok: false, error: 'Не удалось подтвердить вход через VK.' }])
+  const confirmed = await vkPost(path, 7001, buildVkLaunchParams(7001))
+  assert.deepEqual([confirmed.response.status, confirmed.body], [200, { ok: true, data: { approved: true } }])
+  const request = webAuthDb((db) => db.prepare(`
+    SELECT u.telegram_id FROM web_login_requests r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ?
+  `).get(tokenHash(body.data.token)))
+  assert.equal(request.telegram_id, 3001)
+  const audit = webAuthDb((db) => db.prepare(`SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1`).get())
+  assert.deepEqual(audit, { action: 'web_login_approved', meta: JSON.stringify({ provider: 'vk' }) })
+  const reused = await vkPost(path, 7001, buildVkLaunchParams(7001))
+  assert.deepEqual([reused.response.status, reused.body], [410, { ok: false, error: 'Ссылка для входа недействительна или уже использована.' }])
+  const telegramToken = (await postJson('/api/web-auth/start', { provider: 'telegram' })).body.data.token
+  const wrongProvider = await vkPost(`/api/web-auth/confirm/vk?token=${telegramToken}`, 7001, buildVkLaunchParams(7001))
+  assert.equal(wrongProvider.response.status, 410)
+})
+
+test('legacy SEC-005: confirm/vk берёт пользователя из X-VK-User-Id, не сверяя с подписанными параметрами', async () => {
+  const { body } = await postJson('/api/web-auth/start', { provider: 'vk' })
+  const result = await vkPost(`/api/web-auth/confirm/vk?token=${body.data.token}`, 7777, buildVkLaunchParams(7001))
+  assert.equal(result.response.status, 200)
+  const request = webAuthDb((db) => db.prepare(`
+    SELECT u.telegram_id, u.vk_user_id FROM web_login_requests r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ?
+  `).get(tokenHash(body.data.token)))
+  assert.deepEqual(request, { telegram_id: 10000007777, vk_user_id: 7777 })
+})
+
+test.todo('SEC-005: confirm/vk должен брать VK-пользователя только из подписанных launch params')
+
+const vkJson = async (path, body, vkUserId) => {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Client-Platform': 'vk',
+      'X-VK-User-Id': String(vkUserId),
+      'X-App-User-Id': String(10000000000 + vkUserId),
+      'X-VK-Launch-Params': buildVkLaunchParams(vkUserId),
+    },
+    body: JSON.stringify(body),
+  })
+  return { response, body: await response.json() }
+}
+const issueVkLinkCode = async (telegramId) =>
+  (await postJson('/api/account/vk-link-token', { telegram_id: telegramId }, telegramId)).body.data.token
+const confirmVkLink = async (vkUserId, token) =>
+  await vkJson('/api/account/vk-link-confirm', { telegram_id: 10000000000 + vkUserId, token }, vkUserId)
+const userVk = (telegramId) => webAuthDb((db) => db.prepare('SELECT vk_user_id FROM users WHERE telegram_id = ?').get(telegramId)?.vk_user_id ?? null)
+
+test('POST account/vk-link-token выдаёт 4-значный код из Telegram и заменяет прежний', async () => {
+  const first = await postJson('/api/account/vk-link-token', { telegram_id: 3002 }, 3002)
+  assert.equal(first.response.status, 200)
+  assert.match(first.body.data.token, /^[0-9]{4}$/)
+  assert.match(first.body.data.expires_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+  await postJson('/api/account/vk-link-token', { telegram_id: 3002 }, 3002)
+  const state = webAuthDb((db) => ({
+    tokens: db.prepare(`SELECT COUNT(*) AS count FROM vk_link_tokens t JOIN users u ON u.id = t.user_id WHERE u.telegram_id = 3002`).get().count,
+    audit: db.prepare(`SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1`).get(),
+  }))
+  assert.equal(state.tokens, 1)
+  assert.deepEqual(state.audit, { action: 'vk_link_token_created', meta: '{}' })
+  const fromVk = await vkJson('/api/account/vk-link-token', { telegram_id: 10000007001 }, 7001)
+  assert.deepEqual([fromVk.response.status, fromVk.body], [403, { ok: false, error: 'Код выдаётся только из мини-приложения Telegram.' }])
+  const unknown = await postJson('/api/account/vk-link-token', { telegram_id: 5555 }, 5555)
+  assert.deepEqual([unknown.response.status, unknown.body], [404, { ok: false, error: 'Сначала откройте приложение из Telegram-бота.' }])
+})
+
+test('POST account/vk-link-confirm привязывает VK один раз, признаёт повтор и отклоняет другой VK', async () => {
+  const token = await issueVkLinkCode(3002)
+  const linked = await confirmVkLink(7100, token)
+  assert.deepEqual([linked.response.status, linked.body], [200, { ok: true, data: { linked: true } }])
+  assert.equal(userVk(3002), 7100)
+  const audit = webAuthDb((db) => db.prepare(`SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1`).get())
+  assert.deepEqual(audit, { action: 'vk_link_completed', meta: JSON.stringify({ vk_user_id: 7100 }) })
+  const reused = await confirmVkLink(7100, token)
+  assert.deepEqual([reused.response.status, reused.body], [400, { ok: false, error: 'Код недействителен или истёк. Создайте новый код в Telegram.' }])
+  const again = await confirmVkLink(7100, await issueVkLinkCode(3002))
+  assert.deepEqual([again.response.status, again.body], [200, { ok: true, data: { linked: true, already: true } }])
+  const other = await confirmVkLink(7101, await issueVkLinkCode(3002))
+  assert.deepEqual([other.response.status, other.body], [409, { ok: false, error: 'К этому аккаунту Telegram уже привязан другой профиль VK. Обратитесь к администратору.' }])
+})
+
+test('POST account/vk-link-confirm поглощает пустой VK-аккаунт и не трогает аккаунт с данными', async () => {
+  webAuthDb((db) => {
+    const id = Number(db.prepare(`INSERT INTO users (telegram_id, role, vk_user_id) VALUES (10000007200, 'guest', 7200)`).run().lastInsertRowid)
+    db.prepare(`INSERT INTO user_roles (user_id, role) VALUES (?, 'guest')`).run(id)
+  })
+  const merged = await confirmVkLink(7200, await issueVkLinkCode(2001))
+  assert.deepEqual([merged.response.status, merged.body], [200, { ok: true, data: { linked: true } }])
+  assert.equal(userVk(2001), 7200)
+  assert.equal(webAuthDb((db) => db.prepare('SELECT COUNT(*) AS count FROM users WHERE telegram_id = 10000007200').get().count), 0)
+  const withData = await confirmVkLink(7001, await issueVkLinkCode(1001))
+  assert.deepEqual([withData.response.status, withData.body], [409, {
+    ok: false,
+    error: 'С этим аккаунтом VK уже связаны данные (заявка, сообщения или чат). Свяжитесь с администратором для объединения.',
+  }])
+  assert.equal(userVk(1001), null)
+})
+
+test('POST account/vk-link-confirm сохраняет validation, platform и auth ошибки', async () => {
+  const badFormat = await vkJson('/api/account/vk-link-confirm', { telegram_id: 10000007300, token: '12a4' }, 7300)
+  assert.deepEqual([badFormat.response.status, badFormat.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+  const fromTelegram = await postJson('/api/account/vk-link-confirm', { telegram_id: 3001, token: '1234' }, 3001)
+  assert.deepEqual([fromTelegram.response.status, fromTelegram.body], [403, { ok: false, error: 'Подтверждение доступно только из VK.' }])
+  const unsigned = await postJson('/api/account/vk-link-confirm', { telegram_id: 3001, token: '1234' })
+  assert.equal(unsigned.response.status, 401)
+})

@@ -94,5 +94,6 @@ import { PrismaAdminTeacherApplicationRepository } from './prisma-admin-teacher-
       useClass: PrismaAdminTeacherApplicationRepository,
     },
   ],
+  exports: [ModerateAdminStudentUseCase, ChangeAdminTeacherRoleUseCase, ChangeAdminStudentAssignmentUseCase, ListAdminStudentsUseCase, ListAdminTeachersUseCase],
 })
 export class AdminModule {}

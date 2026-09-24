@@ -8,7 +8,7 @@ import {
   type AdminHomeworkReview,
   type AdminStudent,
 } from './admin-read.repository.js'
-import type { AdminStudentStatus } from './admin-read.request.js'
+import type { AdminStudentStatusFilter } from './admin-read.request.js'
 
 const reviewResponse = (review: AdminHomeworkReview) => ({
   id: review.id,
@@ -177,7 +177,7 @@ export class ListAdminStudentsUseCase {
 
   async execute(
     principal: AuthenticatedPrincipal,
-    status: AdminStudentStatus,
+    status: AdminStudentStatusFilter,
   ): Promise<object> {
     requireAdminPrincipal(principal)
     const students = await this.admin.listStudents(status)

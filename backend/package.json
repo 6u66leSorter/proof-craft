@@ -11,7 +11,9 @@
     "start": "node dist/main.js",
     "start:dev": "tsx watch src/main.ts",
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start:bot": "node dist/bot-main.js",
+    "start:bot:dev": "tsx watch src/bot-main.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^9.4.0",
