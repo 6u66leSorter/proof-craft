@@ -1,8 +1,13 @@
 import { useEffect } from 'react'
+import { GuestHomeworkScreen } from '../features/guest/GuestHomeworkScreen'
+import { GuestPortfolioScreen } from '../features/guest/GuestPortfolioScreen'
+import { GuestStudentScreen } from '../features/guest/GuestStudentScreen'
 import { getTelegram } from '../platform/telegram'
 import { ErrorScreen } from '../screens/ErrorScreen'
 import { LoadingScreen } from '../screens/LoadingScreen'
 import { NotPortedScreen } from '../screens/NotPortedScreen'
+import { useLightboxKeys } from '../ui/Lightbox'
+import { Toasts } from '../ui/Toasts'
 import { bootstrap } from './bootstrap'
 import type { ScreenName } from './screens'
 import { useApp } from './store'
@@ -13,6 +18,12 @@ function Screen({ name }: { name: ScreenName }) {
       return <LoadingScreen />
     case 'error':
       return <ErrorScreen />
+    case 'guest':
+      return <GuestPortfolioScreen />
+    case 'guest-student':
+      return <GuestStudentScreen />
+    case 'guest-hw-view':
+      return <GuestHomeworkScreen />
     default:
       return <NotPortedScreen name={name} />
   }
@@ -38,11 +49,22 @@ function useTelegramBackButton() {
   }, [depth, back])
 }
 
+/** StrictMode в разработке вызывает эффекты дважды; bootstrap должен стартовать один раз. */
+let bootstrapped = false
+
 export function App() {
   const scr = useApp((s) => s.scr)
   useTelegramBackButton()
+  useLightboxKeys()
   useEffect(() => {
+    if (bootstrapped) return
+    bootstrapped = true
     void bootstrap()
   }, [])
-  return <Screen name={scr} />
+  return (
+    <>
+      <Screen name={scr} />
+      <Toasts />
+    </>
+  )
 }

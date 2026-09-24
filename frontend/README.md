@@ -16,7 +16,8 @@ npm run build       # frontend/dist
 - `src/app/` — стор (Zustand) со стеком экранов, `bootstrap`, корневой `App`.
 - `src/screens/` — перенесённые экраны; остальные показывают заглушку.
 - `src/ui/` — общие элементы (`Header`) и иконки, сгенерированные из legacy `ICO`.
-- Стили — `../src/index.css` legacy-клиента без копирования; статика — корневой `public/`.
+- Стили — `../src/index.css` legacy-клиента без копирования плюс `src/styles/legacy-compat.css`; статика — корневой `public/`.
+- `src/features/<раздел>/` — экраны раздела и их запросы (сейчас `guest`).
 
 ## Визуальный baseline
 
@@ -31,6 +32,9 @@ npm run visual:test:next       # новый клиент против тех ж�
 ```
 
 В режиме `next` проверяются только сценарии из `visual/ported.ts`; переснимать эталоны с нового клиента запрещено.
+
+- `visual/specs/*.visual.ts` — снимки экранов; `visual/specs/*.behavior.ts` — поведение (навигация, клавиатура, просмотр фото), одинаковое для обоих клиентов.
+- `node visual/tools/diff-report.mjs next` — где именно расходятся снимки последнего прогона.
 
 Как устроено:
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Session } from '../api/types'
+import type { PhotoItem } from '../domain/homework'
 import type { Platform } from '../platform/detect'
 import type { ScreenName } from './screens'
 
@@ -26,6 +27,12 @@ type AppState = Selection & {
   registerRole: string | null
   registerTab: 'reg' | 'login'
   teacherApplicationSent: boolean
+  /** Просмотр фото поверх экрана; сбрасывается при любом переходе. */
+  lightbox: { items: PhotoItem[]; index: number } | null
+  /** Категория учеников в гостевой витрине. */
+  guestTrack: 'student' | 'intern' | 'barber'
+  /** Выбранный в гостевой витрине ученик. */
+  guestStudentId: number | null
 
   /** Переход с сохранением текущего экрана в стек (legacy `go`). */
   go: (scr: ScreenName, data?: GoData) => void
@@ -49,6 +56,9 @@ export const useApp = create<AppState>()((set, get) => ({
   registerRole: null,
   registerTab: 'reg',
   teacherApplicationSent: false,
+  lightbox: null,
+  guestTrack: 'student',
+  guestStudentId: null,
   selectedStudent: null,
   selectedHomework: null,
   selectedAdminTeacher: null,
@@ -56,6 +66,7 @@ export const useApp = create<AppState>()((set, get) => ({
   go: (scr, data) => {
     const s = get()
     set({
+      lightbox: null,
       stack: [
         ...s.stack,
         {
@@ -77,8 +88,12 @@ export const useApp = create<AppState>()((set, get) => ({
   back: () => {
     const stack = get().stack
     const prev = stack[stack.length - 1]
-    if (!prev) return
+    if (!prev) {
+      set({ lightbox: null })
+      return
+    }
     set({
+      lightbox: null,
       stack: stack.slice(0, -1),
       scr: prev.scr,
       tab: prev.tab,

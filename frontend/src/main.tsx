@@ -7,6 +7,7 @@ import { STORAGE_KEYS, local } from './platform/storage'
 import { initTelegramChrome, loadTelegramSdk } from './platform/telegram'
 // Стили legacy-клиента подключаются как есть — источник внешнего вида общий для обоих клиентов.
 import '../../src/index.css'
+import './styles/legacy-compat.css'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },

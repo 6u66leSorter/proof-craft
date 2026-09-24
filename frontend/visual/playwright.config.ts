@@ -35,7 +35,7 @@ const appServer: { command: string; cwd: string; env: Record<string, string> } =
  */
 export default defineConfig<VisualOptions>({
   testDir: '.',
-  testMatch: '**/*.visual.ts',
+  testMatch: ['**/*.visual.ts', '**/*.behavior.ts'],
   outputDir: `./test-results/${target}`,
   snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{arg}{ext}',
   fullyParallel: true,
