@@ -59,7 +59,7 @@
 | POST | `/api/homeworks` | ученик `studying` | Multipart до 5 файлов, серии только из фото, защита от pending-дубликата, атомарные app-уведомления и best-effort Telegram | high | nest-ready |
 | PATCH | `/api/student/homeworks/:homeworkId` | владелец pending-работы | Редактирование текста и вложений | high | legacy |
 | POST | `/api/student/homeworks/:homeworkId/revision` | владелец revision-работы | Исправление и возврат в pending | high | legacy |
-| POST | `/api/homeworks/:id/comments` | ученик, назначенный преподаватель или администратор | Комментарий и уведомления | high | legacy |
+| POST | `/api/homeworks/:id/comments` | ученик, назначенный преподаватель или администратор | Комментарий и уведомления | high | nest-ready |
 | POST | `/api/teacher/review` | назначенный преподаватель; администратор — любой активный ученик | Транзакционная проверка, статус, рейтинг, системное сообщение, аудит, уведомления и одноразовый feedback invite для уроков 5/10/15 | high | nest-ready |
 | GET | `/api/homeworks/:id/file` | владелец, назначенный преподаватель или администратор | Основной local/Telegram-файл и JPEG-preview после проверки доступа | high | nest-ready |
 | GET | `/api/homeworks/:homeworkId/revision/file` | владелец, назначенный преподаватель или администратор | Local/Telegram-файл исправления и JPEG-preview после проверки доступа | high | nest-ready |

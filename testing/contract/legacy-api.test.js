@@ -4705,3 +4705,82 @@ test.todo('SEC-003: снятие роли преподавателя должн�
 test.todo('BUG-001: admin/students должен точно фильтровать studying и completed')
 test.todo('BUG-002: обработка profile edit должна уведомлять ученика')
 test.todo('BUG-003: admin/update-student должен быть атомарным при domain-ошибке')
+
+const readCommentState = (homeworkId) => {
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  const comment = db.prepare(`
+    SELECT hc.text_content, u.telegram_id AS author_telegram_id
+    FROM homework_comments hc JOIN users u ON u.id = hc.author_user_id
+    WHERE hc.homework_id = ? ORDER BY hc.id DESC LIMIT 1
+  `).get(homeworkId)
+  const notification = db.prepare(`
+    SELECT u.telegram_id, n.kind, n.body, n.payload
+    FROM app_notifications n JOIN users u ON u.id = n.user_id
+    ORDER BY n.id DESC LIMIT 1
+  `).get()
+  const notificationCount = db.prepare('SELECT COUNT(*) AS count FROM app_notifications').get().count
+  db.close()
+  return { comment, notification, notificationCount }
+}
+
+test('POST homeworks/:id/comments: ответ ученика уведомляет его преподавателей', async () => {
+  const { response, body } = await postJson(
+    `/api/homeworks/${fixtureIds.pendingHomeworkId}/comments`,
+    { telegram_id: 3001, text_content: '  Вопрос по окантовке  ' },
+    3001,
+  )
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true })
+  const state = readCommentState(fixtureIds.pendingHomeworkId)
+  assert.deepEqual(state.comment, { text_content: 'Вопрос по окантовке', author_telegram_id: 3001 })
+  assert.deepEqual(state.notification, {
+    telegram_id: 2001,
+    kind: 'homework_comment_reply',
+    body: 'Ученик ответил на комментарий к домашнему заданию.',
+    payload: JSON.stringify({ homework_id: fixtureIds.pendingHomeworkId, student_id: fixtureIds.studentOneId }),
+  })
+})
+
+test('POST homeworks/:id/comments: комментарий преподавателя уведомляет ученика, администратора — нет', async () => {
+  const teacher = await postJson(
+    `/api/homeworks/${fixtureIds.pendingHomeworkId}/comments`,
+    { telegram_id: 2001, text_content: 'Подровняйте контур' },
+    2001,
+  )
+  assert.equal(teacher.response.status, 200)
+  const afterTeacher = readCommentState(fixtureIds.pendingHomeworkId)
+  assert.deepEqual(afterTeacher.comment, { text_content: 'Подровняйте контур', author_telegram_id: 2001 })
+  assert.deepEqual(afterTeacher.notification, {
+    telegram_id: 3001,
+    kind: 'homework_comment',
+    body: 'Преподаватель оставил комментарий к вашему домашнему заданию.',
+    payload: JSON.stringify({ homework_id: fixtureIds.pendingHomeworkId, student_id: fixtureIds.studentOneId }),
+  })
+
+  const admin = await postJson(
+    `/api/homeworks/${fixtureIds.pendingHomeworkId}/comments`,
+    { telegram_id: 1001, text_content: 'Комментарий администратора' },
+    1001,
+  )
+  assert.equal(admin.response.status, 200)
+  const afterAdmin = readCommentState(fixtureIds.pendingHomeworkId)
+  assert.equal(afterAdmin.comment.author_telegram_id, 1001)
+  assert.equal(afterAdmin.notificationCount, afterTeacher.notificationCount)
+})
+
+test('POST homeworks/:id/comments сохраняет validation, access и not-found ошибки', async () => {
+  const path = `/api/homeworks/${fixtureIds.pendingHomeworkId}/comments`
+  const invalidId = await postJson('/api/homeworks/abc/comments', { telegram_id: 3001, text_content: 'x' }, 3001)
+  const empty = await postJson(path, { telegram_id: 3001, text_content: '   ' }, 3001)
+  const tooLong = await postJson(path, { telegram_id: 3001, text_content: 'x'.repeat(2001) }, 3001)
+  const unknown = await postJson('/api/homeworks/999999/comments', { telegram_id: 3001, text_content: 'x' }, 3001)
+  const stranger = await postJson(path, { telegram_id: 3002, text_content: 'x' }, 3002)
+  const unsigned = await postJson(path, { telegram_id: 3001, text_content: 'x' })
+  const invalid = { ok: false, error: 'Некорректные параметры запроса.' }
+  assert.deepEqual([invalidId.response.status, invalidId.body], [400, invalid])
+  assert.deepEqual([empty.response.status, empty.body], [400, invalid])
+  assert.deepEqual([tooLong.response.status, tooLong.body], [400, invalid])
+  assert.deepEqual([unknown.response.status, unknown.body], [404, { ok: false, error: 'Домашнее задание не найдено.' }])
+  assert.deepEqual([stranger.response.status, stranger.body], [403, { ok: false, error: 'Нет доступа к этому заданию.' }])
+  assert.equal(unsigned.response.status, 401)
+})
