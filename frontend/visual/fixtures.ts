@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { test as base, expect, type Page } from '@playwright/test'
 import { VISUAL_SESSIONS } from './legacy-api/sessions.mjs'
+import { PORTED_SCENARIOS } from './ported'
 
 export type Theme = 'light' | 'dark'
 export type Role = keyof typeof VISUAL_SESSIONS
@@ -33,6 +34,7 @@ const FIXED_NOW = new Date('2030-03-15T12:00:00+03:00')
 type SettleOptions = { waitForNetwork?: boolean }
 
 type VisualFixtures = {
+  portedGuard: void
   mutations: string[]
   openAs: (role: Role | null, search?: string, options?: SettleOptions) => Promise<void>
   settle: () => Promise<void>
@@ -41,6 +43,17 @@ type VisualFixtures = {
 
 export const test = base.extend<VisualFixtures & VisualOptions>({
   theme: ['light', { option: true }],
+
+  portedGuard: [
+    async ({}, use, testInfo) => {
+      if (process.env.VISUAL_TARGET === 'next') {
+        const scenario = testInfo.titlePath.slice(1).join(' › ')
+        testInfo.skip(!PORTED_SCENARIOS.has(scenario), 'экран ещё не перенесён в новый клиент')
+      }
+      await use()
+    },
+    { auto: true },
+  ],
 
   mutations: async ({ page, baseURL }, use) => {
     const mutations: string[] = []

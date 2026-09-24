@@ -3,7 +3,31 @@ import type { VisualOptions } from './fixtures'
 
 const apiPort = Number(process.env.VISUAL_API_PORT || 18787)
 const appPort = Number(process.env.VISUAL_APP_PORT || 14173)
-const viteBin = '../node_modules/vite/bin/vite.js'
+const legacyViteBin = '../node_modules/vite/bin/vite.js'
+const nextViteBin = 'node_modules/vite/bin/vite.js'
+/** `legacy` снимает и проверяет эталоны; `next` сравнивает новый клиент с ними же. */
+export const target = process.env.VISUAL_TARGET === 'next' ? 'next' : 'legacy'
+
+if (target === 'next' && process.argv.some((arg) => arg === '-u' || arg.startsWith('--update-snapshots'))) {
+  throw new Error('Эталоны снимаются только с legacy-клиента: запускайте --update-snapshots без VISUAL_TARGET=next.')
+}
+
+const appServer: { command: string; cwd: string; env: Record<string, string> } =
+  target === 'next'
+    ? {
+        command:
+          `node ${nextViteBin} build --logLevel warn && ` +
+          `node ${nextViteBin} preview --host 127.0.0.1 --port ${appPort} --strictPort`,
+        cwd: '..',
+        env: { VITE_API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
+      }
+    : {
+        command:
+          `node ${legacyViteBin} build --config visual/vite.legacy.config.mjs --logLevel warn && ` +
+          `node ${legacyViteBin} preview --config visual/vite.legacy.config.mjs --host 127.0.0.1 --port ${appPort} --strictPort`,
+        cwd: '..',
+        env: { VISUAL_API_PORT: String(apiPort) },
+      }
 
 /**
  * Визуальный baseline legacy-клиента. Эталоны лежат в `__screenshots__/<project>/`
@@ -12,12 +36,12 @@ const viteBin = '../node_modules/vite/bin/vite.js'
 export default defineConfig<VisualOptions>({
   testDir: '.',
   testMatch: '**/*.visual.ts',
-  outputDir: './test-results',
+  outputDir: `./test-results/${target}`,
   snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{arg}{ext}',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
-  reporter: [['list'], ['html', { outputFolder: './playwright-report', open: 'never' }]],
+  reporter: [['list'], ['html', { outputFolder: `./playwright-report/${target}`, open: 'never' }]],
   expect: {
     toHaveScreenshot: { maxDiffPixels: 0, threshold: 0, animations: 'disabled', caret: 'hide', scale: 'css' },
   },
@@ -58,12 +82,8 @@ export default defineConfig<VisualOptions>({
       timeout: 60_000,
     },
     {
-      command:
-        `node ${viteBin} build --config visual/vite.legacy.config.mjs --logLevel warn && ` +
-        `node ${viteBin} preview --config visual/vite.legacy.config.mjs --host 127.0.0.1 --port ${appPort} --strictPort`,
-      cwd: '..',
+      ...appServer,
       url: `http://127.0.0.1:${appPort}`,
-      env: { VISUAL_API_PORT: String(apiPort) },
       reuseExistingServer: false,
       timeout: 120_000,
     },

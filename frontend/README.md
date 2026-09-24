@@ -1,6 +1,22 @@
 # Новый фронтенд (в разработке)
 
-Отдельный пакет для миграции клиента на React 19 + TypeScript. Legacy-клиент в `src/` не меняется и остаётся production до явного переключения. План: `docs/migration/FRONTEND_PLAN.md`.
+Отдельный пакет для миграции клиента на React 19 + TypeScript. Legacy-клиент в `src/` не меняется и остаётся production до явного переключения. План и правила переноса: `docs/migration/FRONTEND_PLAN.md`.
+
+## Приложение
+
+```bash
+npm install
+npm run dev         # http://localhost:5174, /api проксируется на legacy API :8787
+npm run typecheck
+npm run build       # frontend/dist
+```
+
+- `src/platform/` — определение Telegram / VK / web-session, Telegram SDK, хранилище.
+- `src/api/` — клиент legacy API и типы ответов.
+- `src/app/` — стор (Zustand) со стеком экранов, `bootstrap`, корневой `App`.
+- `src/screens/` — перенесённые экраны; остальные показывают заглушку.
+- `src/ui/` — общие элементы (`Header`) и иконки, сгенерированные из legacy `ICO`.
+- Стили — `../src/index.css` legacy-клиента без копирования; статика — корневой `public/`.
 
 ## Визуальный baseline
 
@@ -11,7 +27,10 @@ npm install                    # в каталоге frontend/
 npx playwright install chromium
 npm run visual:test            # сравнить с эталонами
 npm run visual:update          # переснять эталоны (только осознанно)
+npm run visual:test:next       # новый клиент против тех же эталонов
 ```
+
+В режиме `next` проверяются только сценарии из `visual/ported.ts`; переснимать эталоны с нового клиента запрещено.
 
 Как устроено:
 
