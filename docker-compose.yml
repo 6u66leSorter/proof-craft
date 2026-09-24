@@ -15,6 +15,18 @@ x-app-env: &app-env
   APP_NOTIFICATIONS_RETENTION_DAYS: ${APP_NOTIFICATIONS_RETENTION_DAYS:-90}
 
 services:
+  # web — первым: Timeweb App Platform проксирует домен только на первый сервис compose.
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -40,17 +52,6 @@ services:
       disable: true
     # Без BOT_TOKEN бот завершается с кодом 0 и не перезапускается.
     restart: on-failure
-
-  web:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    ports:
-      - "${WEB_PORT:-8080}:80"
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
 
 volumes:
   # SQLite и загруженные файлы (uploads) — общие для api и bot.
