@@ -1,0 +1,13 @@
+/*
+ * Эквиваленты правил src/index.css, которые выбирают элементы по тексту inline-стиля
+ * (`[style*="position:relative"]`). React сериализует style как `position: relative`,
+ * поэтому исходные селекторы в новом клиенте не срабатывают. Здесь те же правила
+ * привязаны к явному классу `ba-pos-relative`, который ставится таким элементам.
+ * Специфичность и !important совпадают с оригиналом.
+ */
+
+/* src/index.css:88 */
+.scr section.ba-pos-relative .badge { color:#f3d576 !important; background:rgba(25,20,10,.72) !important; }
+
+/* src/index.css:89 */
+.scr > div.card.ba-pos-relative,.scr > div > div.card.ba-pos-relative { box-shadow:var(--glow) !important; }
