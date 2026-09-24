@@ -35,6 +35,7 @@ npm run visual:test:next       # новый клиент против тех ж�
 
 - `visual/specs/*.visual.ts` — снимки экранов; `visual/specs/*.behavior.ts` — поведение (навигация, клавиатура, просмотр фото), одинаковое для обоих клиентов.
 - `node visual/tools/diff-report.mjs next` — где именно расходятся снимки последнего прогона.
+- `npm run compare -- <роль>` — оба клиента рядом в окнах Chrome на изолированном legacy API с тестовыми данными (роли: admin, teacher, student, intern, moderation, newcomer, guest, login).
 
 Как устроено:
 
