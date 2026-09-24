@@ -1,0 +1,4 @@
+node_modules
+visual/.legacy-dist
+visual/test-results
+visual/playwright-report

@@ -21,6 +21,7 @@
 | `src/` | Основной фронтенд: `main.js` загружает Telegram SDK и запускает `newFrontApp.js`; `index.css` — стили. |
 | `bot/` | API (`apiServer.js`), Telegram-бот (`registrationBot.js`), SQLite-схема/миграции (`database.js`) и сервисы запросов (`dbService.js`). |
 | `backend/` | Новый NestJS backend, общая проверка Telegram/VK/web-session credentials, Prisma schema и repository boundary; запускается рядом с legacy API и принимает только явно перенесённые маршруты. |
+| `frontend/` | Новый клиент (React 19 + TypeScript) в отдельном пакете; сейчас содержит визуальный baseline legacy-клиента (`frontend/visual/`). Legacy `src/` не меняется и остаётся production. |
 | `docs/migration/` | Реестр API, решения по legacy-поведению и этапный план миграции. |
 | `docs/db/schema.dbml` | Актуализируемая ER-диаграмма основных таблиц. |
 | `testing/atac/` | Импортируемая коллекция ATAC/Postman и smoke-сценарии API. |
@@ -109,6 +110,7 @@ npm run build
 - `npm test` запускает characterization-тесты legacy API и e2e-тесты NestJS. Legacy-тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
 - Проверка NestJS отдельно: `npm run test:backend`, `npm --prefix backend run typecheck`, `npm run backend:build`.
 - Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичное портфолио, showcase, уведомления, работы, профили student/teacher и аватары ученика, включая profile-edit транзакцию и уведомления, multipart-загрузку, cleanup, approved-only доступ, ролевую матрицу файлов, preview, credential-проверку, retention и изоляцию по user ID.
+- `npm --prefix frontend run visual:test` сравнивает legacy-клиент с 228 эталонными скриншотами на изолированном legacy API и отдельной SQLite (`frontend/README.md`). Эталоны — критерий «1 в 1» для нового клиента.
 - `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
 - `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.
 - Перед изменениями API проверять затронутые сценарии ATAC; для клиентских изменений вручную проходить сценарий соответствующей роли в Telegram и VK.
