@@ -44,6 +44,12 @@ import {
 } from './admin-student-update.body.js'
 import { AdminStudentUpdateGuard } from './admin-student-update.guard.js'
 import { UpdateAdminStudentUseCase } from './update-admin-student.use-case.js'
+import {
+  adminTeacherApplicationCommandFrom,
+  type AdminTeacherApplicationRequest,
+} from './admin-teacher-application.body.js'
+import { AdminTeacherApplicationGuard } from './admin-teacher-application.guard.js'
+import { DecideAdminTeacherApplicationUseCase } from './decide-admin-teacher-application.use-case.js'
 
 @Controller(['api/admin', 'admin'])
 export class AdminController {
@@ -70,6 +76,8 @@ export class AdminController {
     private readonly changeStudentAssignment: ChangeAdminStudentAssignmentUseCase,
     @Inject(UpdateAdminStudentUseCase)
     private readonly updateStudent: UpdateAdminStudentUseCase,
+    @Inject(DecideAdminTeacherApplicationUseCase)
+    private readonly decideTeacherApplication: DecideAdminTeacherApplicationUseCase,
   ) {}
 
   @Get('teacher-applications')
@@ -78,6 +86,19 @@ export class AdminController {
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
   ): Promise<object> {
     return await this.teacherApplications.execute(principal)
+  }
+
+  @Post('teacher-applications')
+  @HttpCode(200)
+  @UseGuards(AdminTeacherApplicationGuard, AuthenticationGuard)
+  async decideOnTeacherApplication(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Req() request: AdminTeacherApplicationRequest,
+  ): Promise<object> {
+    return await this.decideTeacherApplication.execute(
+      principal,
+      adminTeacherApplicationCommandFrom(request),
+    )
   }
 
   @Get('feedback')

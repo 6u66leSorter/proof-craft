@@ -470,6 +470,42 @@ const createUpdateStudentFixture = ({ telegramId = 9301, status = 'studying' } =
   return { userId, studentId, teacherId }
 }
 
+const createTeacherApplicationFixture = ({
+  telegramId,
+  status = 'pending',
+  existingTeacher = false,
+} = {}) => {
+  const db = new Database(legacyDatabasePath)
+  const userId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, 'Кандидат', 'Преподаватель', 'guest')
+  `).run(telegramId).lastInsertRowid)
+  if (existingTeacher) {
+    db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+      .run(userId, 'teacher')
+    db.prepare(`
+      INSERT INTO teachers (user_id, full_name) VALUES (?, 'Существующий Преподаватель')
+    `).run(userId)
+  }
+  const applicationId = Number(db.prepare(`
+    INSERT INTO teacher_applications
+      (applicant_user_id, full_name, phone, status)
+    VALUES (?, 'Кандидат Преподаватель', '+79990000940', ?)
+  `).run(userId, status).lastInsertRowid)
+  db.close()
+  return { userId, applicationId }
+}
+
+const removeTeacherApplicationFixture = ({ userId, applicationId }) => {
+  const db = new Database(legacyDatabasePath)
+  db.prepare('DELETE FROM audit_log WHERE meta LIKE ?')
+    .run(`%\"application_id\":${applicationId}%`)
+  db.prepare('DELETE FROM app_notifications WHERE user_id = ?').run(userId)
+  db.prepare('DELETE FROM teacher_applications WHERE id = ?').run(applicationId)
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId)
+  db.close()
+}
+
 let fixtureIds
 
 before(async () => {
@@ -1756,6 +1792,176 @@ test('GET /api/admin/teacher-applications возвращает только pend
         created_at: '2026-09-23 10:00:00',
       }],
     },
+  })
+})
+
+test('POST /api/admin/teacher-applications одобряет нового преподавателя', async () => {
+  const target = createTeacherApplicationFixture({ telegramId: 9401 })
+  const { response, body } = await postJson('/api/admin/teacher-applications', {
+    telegram_id: 1001,
+    application_id: String(target.applicationId),
+    action: 'approve',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true, data: { status: 'approved' } })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT status FROM teacher_applications WHERE id = ?
+  `).get(target.applicationId), { status: 'approved' })
+  assert.deepEqual(db.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ? AND role = 'teacher'
+  `).get(target.userId), { role: 'teacher' })
+  assert.deepEqual(db.prepare(`
+    SELECT full_name FROM teachers WHERE user_id = ?
+  `).get(target.userId), { full_name: 'Кандидат Преподаватель' })
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'teacher_application_approved',
+    meta: JSON.stringify({ application_id: target.applicationId, user_id: target.userId }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.userId), {
+    kind: 'teacher_application_result',
+    body: 'Ваша заявка на роль преподавателя одобрена. Откройте мини-приложение снова — доступ «Преподаватель» должен появиться после проверки сессии.',
+    payload: JSON.stringify({ application_id: target.applicationId }),
+  })
+  db.close()
+  removeTeacherApplicationFixture(target)
+})
+
+test('POST /api/admin/teacher-applications отклоняет заявку без уведомления', async () => {
+  const target = createTeacherApplicationFixture({ telegramId: 9402 })
+  const dbBefore = new Database(legacyDatabasePath, { readonly: true })
+  const notificationCountBefore = dbBefore.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(target.userId).count
+  dbBefore.close()
+
+  const { response, body } = await postJson('/api/admin/teacher-applications', {
+    telegram_id: 1001,
+    application_id: target.applicationId,
+    action: 'reject',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, { ok: true, data: { status: 'rejected' } })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT status FROM teacher_applications WHERE id = ?
+  `).get(target.applicationId), { status: 'rejected' })
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'teacher_application_rejected',
+    meta: JSON.stringify({ application_id: target.applicationId }),
+  })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(target.userId).count, notificationCountBefore)
+  db.close()
+  removeTeacherApplicationFixture(target)
+})
+
+test('POST /api/admin/teacher-applications сохраняет ветку already_teacher', async () => {
+  const target = createTeacherApplicationFixture({
+    telegramId: 9403,
+    existingTeacher: true,
+  })
+  const dbBefore = new Database(legacyDatabasePath, { readonly: true })
+  const auditCountBefore = dbBefore.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+  `).get().count
+  dbBefore.close()
+
+  const { response, body } = await postJson('/api/admin/teacher-applications', {
+    telegram_id: 1001,
+    application_id: target.applicationId,
+    action: 'approve',
+  }, 1001)
+  assert.equal(response.status, 200)
+  assert.deepEqual(body, {
+    ok: true,
+    data: { status: 'approved', already_teacher: true },
+  })
+
+  const db = new Database(legacyDatabasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT status FROM teacher_applications WHERE id = ?
+  `).get(target.applicationId), { status: 'approved' })
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+  `).get().count, auditCountBefore)
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(target.userId).count, 0)
+  db.close()
+  removeTeacherApplicationFixture(target)
+})
+
+test('POST /api/admin/teacher-applications сохраняет validation, auth и domain-ошибки', async (context) => {
+  const valid = {
+    telegram_id: 1001,
+    application_id: 999999,
+    action: 'approve',
+  }
+  await context.test('body проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, application_id: 0 },
+      { ...valid, application_id: 'nope' },
+      { ...valid, action: 'archive' },
+    ]) {
+      const result = await postJson('/api/admin/teacher-applications', payload)
+      assert.equal(result.response.status, 400)
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  await context.test('нет credential', async () => {
+    assert.equal(
+      (await postJson('/api/admin/teacher-applications', valid)).response.status,
+      401,
+    )
+  })
+  await context.test('credential не совпадает', async () => {
+    assert.equal(
+      (await postJson('/api/admin/teacher-applications', valid, 3001)).response.status,
+      403,
+    )
+  })
+  await context.test('пользователь не администратор', async () => {
+    const result = await postJson('/api/admin/teacher-applications', {
+      ...valid,
+      telegram_id: 3001,
+    }, 3001)
+    assert.equal(result.response.status, 403)
+    assert.deepEqual(result.body, {
+      ok: false,
+      error: 'Доступ только для администраторов.',
+    })
+  })
+  await context.test('заявка отсутствует или обработана', async () => {
+    const processed = createTeacherApplicationFixture({
+      telegramId: 9404,
+      status: 'rejected',
+    })
+    for (const applicationId of [999999, processed.applicationId]) {
+      const result = await postJson('/api/admin/teacher-applications', {
+        ...valid,
+        application_id: applicationId,
+      }, 1001)
+      assert.equal(result.response.status, 404)
+      assert.deepEqual(result.body, {
+        ok: false,
+        error: 'Заявка не найдена или уже обработана.',
+      })
+    }
+    removeTeacherApplicationFixture(processed)
   })
 })
 

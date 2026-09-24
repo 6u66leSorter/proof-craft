@@ -16,6 +16,14 @@
 
 Новые записи добавляются после завершения существенной задачи или по явной команде пользователя сохранить итоги.
 
+### 2026-09-24 — Обработка заявок преподавателей
+
+- **Цель:** перенести `POST /api/admin/teacher-applications`, сохранив внешний контракт approve/reject и согласовав его с исправлением `SEC-003`.
+- **Сделано:** в `AdminModule` добавлены body guard, application use case и Prisma repository. Reject атомарно меняет статус и пишет аудит без уведомления; approve атомарно создаёт роль/профиль, аудит и app-уведомление, после чего отправляет Telegram. Для уже активного преподавателя сохранён legacy-ответ `already_teacher` без повторных side effects; деактивированный сохранённый профиль реактивируется без дублирования карточки.
+- **Проверка:** legacy — 234 успешных теста и 7 целевых TODO; NestJS — 261 успешный тест. Characterization и e2e покрывают approve/reject, `already_teacher`, реактивацию, Telegram/web-session, nginx-путь, coercion и ошибки `400/401/403/404`. Также прошли lint, backend typecheck, Prisma validate и обе production-сборки.
+- **Вывод:** маршрут получил статус `nest-ready`; теперь готовы 40 из 58 маршрутов, 17 остаются на legacy и 1 покрыт characterization-тестами. Схема БД, Prisma migrations и production routing не менялись.
+- **Следующий шаг:** пакетом перенести `POST /api/students` и `POST /api/teacher-application`.
+
 ### 2026-09-24 — Административное обновление ученика
 
 - **Цель:** перенести `POST /api/admin/update-student` без изменения существующей последовательности бизнес-операций.

@@ -227,6 +227,54 @@ const seedAdminReads = (path: string): typeof ids => {
   }
 }
 
+const createTeacherApplication = ({
+  telegramId,
+  status = 'pending',
+  teacherProfile = false,
+  teacherRole = false,
+}: {
+  telegramId: number
+  status?: string
+  teacherProfile?: boolean
+  teacherRole?: boolean
+}): { userId: number; applicationId: number; teacherId: number | null } => {
+  const db = new Database(databasePath)
+  const userId = Number(db.prepare(`
+    INSERT INTO users (telegram_id, first_name, last_name, role)
+    VALUES (?, 'Application', 'Candidate', 'guest')
+  `).run(telegramId).lastInsertRowid)
+  if (teacherRole) {
+    db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+      .run(userId, 'teacher')
+  }
+  const teacherId = teacherProfile
+    ? Number(db.prepare(`
+        INSERT INTO teachers (user_id, full_name)
+        VALUES (?, 'Existing Candidate')
+      `).run(userId).lastInsertRowid)
+    : null
+  const applicationId = Number(db.prepare(`
+    INSERT INTO teacher_applications
+      (applicant_user_id, full_name, phone, status)
+    VALUES (?, 'Application Candidate', '+70000000999', ?)
+  `).run(userId, status).lastInsertRowid)
+  db.close()
+  return { userId, applicationId, teacherId }
+}
+
+const removeTeacherApplication = (target: {
+  userId: number
+  applicationId: number
+}): void => {
+  const db = new Database(databasePath)
+  db.prepare(`DELETE FROM audit_log WHERE meta LIKE ?`)
+    .run(`%\"application_id\":${target.applicationId}%`)
+  db.prepare(`DELETE FROM app_notifications WHERE user_id = ?`).run(target.userId)
+  db.prepare(`DELETE FROM teacher_applications WHERE id = ?`).run(target.applicationId)
+  db.prepare(`DELETE FROM users WHERE id = ?`).run(target.userId)
+  db.close()
+}
+
 const buildTelegramInitData = (telegramUserId: number): string => {
   const params = new URLSearchParams({
     auth_date: String(Math.floor(Date.now() / 1000)),
@@ -291,6 +339,239 @@ test('GET admin/teacher-applications возвращает только pending-�
       }],
     },
   })
+})
+
+test('POST admin/teacher-applications одобряет нового преподавателя и уведомляет', async () => {
+  const target = createTeacherApplication({ telegramId: 8601 })
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/admin/teacher-applications',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      application_id: String(target.applicationId),
+      action: 'approve',
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), {
+    ok: true,
+    data: { status: 'approved' },
+  })
+
+  const db = new Database(databasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT status FROM teacher_applications WHERE id = ?
+  `).get(target.applicationId), { status: 'approved' })
+  assert.deepEqual(db.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ? AND role = 'teacher'
+  `).get(target.userId), { role: 'teacher' })
+  assert.deepEqual(db.prepare(`
+    SELECT full_name FROM teachers WHERE user_id = ?
+  `).get(target.userId), { full_name: 'Application Candidate' })
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'teacher_application_approved',
+    meta: JSON.stringify({
+      application_id: target.applicationId,
+      user_id: target.userId,
+    }),
+  })
+  assert.deepEqual(db.prepare(`
+    SELECT kind, body, payload FROM app_notifications
+    WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(target.userId), {
+    kind: 'teacher_application_result',
+    body: 'Ваша заявка на роль преподавателя одобрена. Откройте мини-приложение снова — доступ «Преподаватель» должен появиться после проверки сессии.',
+    payload: JSON.stringify({ application_id: target.applicationId }),
+  })
+  db.close()
+  assert.deepEqual(sentNotifications.at(-1), {
+    telegramId: 8601,
+    message: 'Ваша заявка на роль преподавателя одобрена. Откройте мини-приложение снова — доступ «Преподаватель» должен появиться после проверки сессии.',
+  })
+  removeTeacherApplication(target)
+})
+
+test('POST admin/teacher-applications отклоняет заявку через web-session', async () => {
+  const target = createTeacherApplication({ telegramId: 8602 })
+  const notificationCountBefore = sentNotifications.length
+  const response = await app.inject({
+    method: 'POST',
+    url: '/admin/teacher-applications',
+    headers: {
+      'x-web-session': adminWebSessionToken,
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      application_id: target.applicationId,
+      action: 'reject',
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), {
+    ok: true,
+    data: { status: 'rejected' },
+  })
+
+  const db = new Database(databasePath, { readonly: true })
+  assert.deepEqual(db.prepare(`
+    SELECT status FROM teacher_applications WHERE id = ?
+  `).get(target.applicationId), { status: 'rejected' })
+  assert.deepEqual(db.prepare(`
+    SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1
+  `).get(), {
+    action: 'teacher_application_rejected',
+    meta: JSON.stringify({ application_id: target.applicationId }),
+  })
+  assert.equal((db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(target.userId) as { count: number }).count, 0)
+  db.close()
+  assert.equal(sentNotifications.length, notificationCountBefore)
+  removeTeacherApplication(target)
+})
+
+test('POST admin/teacher-applications сохраняет already_teacher и восстанавливает деактивированного', async () => {
+  const active = createTeacherApplication({
+    telegramId: 8603,
+    teacherProfile: true,
+    teacherRole: true,
+  })
+  const inactive = createTeacherApplication({
+    telegramId: 8604,
+    teacherProfile: true,
+  })
+  const before = new Database(databasePath, { readonly: true })
+  const auditCountBefore = (before.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+  `).get() as { count: number }).count
+  before.close()
+
+  const activeResponse = await app.inject({
+    method: 'POST',
+    url: '/api/admin/teacher-applications',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      application_id: active.applicationId,
+      action: 'approve',
+    },
+  })
+  assert.deepEqual(activeResponse.json(), {
+    ok: true,
+    data: { status: 'approved', already_teacher: true },
+  })
+
+  const inactiveResponse = await app.inject({
+    method: 'POST',
+    url: '/api/admin/teacher-applications',
+    headers: {
+      ...authHeaders(adminTelegramId),
+      'content-type': 'application/json',
+    },
+    payload: {
+      telegram_id: adminTelegramId,
+      application_id: inactive.applicationId,
+      action: 'approve',
+    },
+  })
+  assert.deepEqual(inactiveResponse.json(), {
+    ok: true,
+    data: { status: 'approved' },
+  })
+
+  const db = new Database(databasePath, { readonly: true })
+  assert.equal((db.prepare(`
+    SELECT COUNT(*) AS count FROM audit_log
+  `).get() as { count: number }).count, auditCountBefore + 1)
+  assert.deepEqual(db.prepare(`
+    SELECT role FROM user_roles WHERE user_id = ? AND role = 'teacher'
+  `).get(inactive.userId), { role: 'teacher' })
+  assert.equal((db.prepare(`
+    SELECT COUNT(*) AS count FROM teachers WHERE user_id = ?
+  `).get(inactive.userId) as { count: number }).count, 1)
+  assert.equal((db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(active.userId) as { count: number }).count, 0)
+  assert.equal((db.prepare(`
+    SELECT COUNT(*) AS count FROM app_notifications WHERE user_id = ?
+  `).get(inactive.userId) as { count: number }).count, 1)
+  db.close()
+  assert.equal(sentNotifications.at(-1)?.telegramId, 8604)
+  removeTeacherApplication(active)
+  removeTeacherApplication(inactive)
+})
+
+test('POST admin/teacher-applications сохраняет validation, auth и not-found', async (context) => {
+  const injectDecision = async (
+    payload: Record<string, unknown>,
+    telegramId?: number,
+  ) => await app.inject({
+    method: 'POST',
+    url: '/api/admin/teacher-applications',
+    headers: {
+      ...(telegramId == null ? {} : authHeaders(telegramId)),
+      'content-type': 'application/json',
+    },
+    payload,
+  })
+  const valid = {
+    telegram_id: adminTelegramId,
+    application_id: 999999,
+    action: 'approve',
+  }
+
+  await context.test('body проверяется до credential', async () => {
+    for (const payload of [
+      { ...valid, application_id: 0 },
+      { ...valid, application_id: 'nope' },
+      { ...valid, action: 'archive' },
+    ]) {
+      const response = await injectDecision(payload)
+      assert.equal(response.statusCode, 400)
+      assert.deepEqual(response.json(), {
+        ok: false,
+        error: 'Некорректные параметры запроса.',
+      })
+    }
+  })
+  assert.equal((await injectDecision(valid)).statusCode, 401)
+  assert.equal((await injectDecision(valid, studentTelegramId)).statusCode, 403)
+
+  const nonAdmin = await injectDecision({
+    ...valid,
+    telegram_id: studentTelegramId,
+  }, studentTelegramId)
+  assert.equal(nonAdmin.statusCode, 403)
+  assert.deepEqual(nonAdmin.json(), {
+    ok: false,
+    error: 'Доступ только для администраторов.',
+  })
+
+  const missing = await injectDecision(valid, adminTelegramId)
+  assert.equal(missing.statusCode, 404)
+  assert.deepEqual(missing.json(), {
+    ok: false,
+    error: 'Заявка не найдена или уже обработана.',
+  })
+
+  const processed = createTeacherApplication({ telegramId: 8605, status: 'rejected' })
+  const alreadyProcessed = await injectDecision({
+    ...valid,
+    application_id: processed.applicationId,
+  }, adminTelegramId)
+  assert.equal(alreadyProcessed.statusCode, 404)
+  assert.deepEqual(alreadyProcessed.json(), missing.json())
+  removeTeacherApplication(processed)
 })
 
 test('GET admin/feedback сохраняет cursor-пагинацию', async () => {
