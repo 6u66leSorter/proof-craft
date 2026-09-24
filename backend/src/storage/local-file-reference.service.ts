@@ -4,6 +4,7 @@ import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Injectable } from '@nestjs/common'
 import sharp from 'sharp'
+import { telegramApiBaseUrl } from '../notifications/telegram-user-notification.gateway.js'
 import {
   FileReferenceService,
   type FileAvailability,
@@ -94,7 +95,7 @@ export class LocalFileReferenceService implements FileReferenceService {
 
     try {
       const metadataResponse = await fetch(
-        `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
+        `${telegramApiBaseUrl()}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
       )
       const metadata = (await metadataResponse.json().catch(() => null)) as {
         ok?: boolean
@@ -105,7 +106,7 @@ export class LocalFileReferenceService implements FileReferenceService {
 
       const encodedPath = filePath.split('/').map(encodeURIComponent).join('/')
       const fileResponse = await fetch(
-        `https://api.telegram.org/file/bot${token}/${encodedPath}`,
+        `${telegramApiBaseUrl()}/file/bot${token}/${encodedPath}`,
       )
       if (!fileResponse.ok || !fileResponse.body) return null
 

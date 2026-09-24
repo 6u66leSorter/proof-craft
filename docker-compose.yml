@@ -5,6 +5,8 @@
 x-app-env: &app-env
   BOT_TOKEN: ${BOT_TOKEN:-}
   TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+  # Прокси Bot API, если сервер не достаёт до api.telegram.org (например, хостинг в РФ).
+  TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-}
   WEB_APP_URL: ${WEB_APP_URL:-}
   TG_WEBAPP_AUTH: ${TG_WEBAPP_AUTH:-strict}
   VK_APP_ID: ${VK_APP_ID:-54558405}

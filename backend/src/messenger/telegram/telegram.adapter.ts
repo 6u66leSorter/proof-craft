@@ -74,7 +74,7 @@ export class TelegramAdapter implements ChannelPort, OnApplicationShutdown {
         }
       } catch (error) {
         if (!this.running) return
-        this.logger.warn(`getUpdates: ${error instanceof Error ? error.message : String(error)}`)
+        this.logger.warn(`getUpdates: ${describeError(error)}`)
         await new Promise((resolve) => setTimeout(resolve, 1000))
       }
     }
@@ -96,4 +96,11 @@ export class TelegramAdapter implements ChannelPort, OnApplicationShutdown {
   async answerButton(callbackId: string, text?: string): Promise<void> {
     await this.client!.call('answerCallbackQuery', { callback_query_id: callbackId, ...(text ? { text } : {}) })
   }
+}
+
+/** `fetch failed` прячет сетевую причину (таймаут, DNS, отказ соединения) в `cause`. */
+const describeError = (error: unknown): string => {
+  if (!(error instanceof Error)) return String(error)
+  const cause = error.cause as { code?: string; message?: string } | undefined
+  return cause ? `${error.message} (${cause.code ?? cause.message ?? 'unknown cause'})` : error.message
 }
