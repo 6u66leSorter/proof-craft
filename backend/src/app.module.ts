@@ -8,6 +8,7 @@ import { PublicPortfolioModule } from './public-portfolio/public-portfolio.modul
 import { ProfilesModule } from './profiles/profiles.module.js'
 import { HomeworkCommentsModule } from './homework-comments/homework-comments.module.js'
 import { WebAuthModule } from './web-auth/web-auth.module.js'
+import { AccountModule } from './account/account.module.js'
 import { RegistrationModule } from './registration/registration.module.js'
 import { SessionModule } from './session/session.module.js'
 import { ShowcaseModule } from './showcase/showcase.module.js'
@@ -27,6 +28,7 @@ import { TeacherCabinetModule } from './teacher-cabinet/teacher-cabinet.module.j
     RegistrationModule,
     HomeworkCommentsModule,
     WebAuthModule,
+    AccountModule,
     SessionModule,
     ShowcaseModule,
     StudentAvatarsModule,

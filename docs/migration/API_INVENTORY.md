@@ -32,8 +32,8 @@
 | POST | `/api/web-auth/confirm/vk` | подписанные VK launch params | Подтверждение VK-входа | high | nest-ready |
 | POST | `/api/web-auth/logout` | web-session | Удаление сессии | medium | nest-ready |
 | GET | `/api/web-auth/session` | web-session | Проверка сессии сайта | medium | nest-ready |
-| POST | `/api/account/vk-link-token` | Telegram | Четырёхзначный код привязки | high | legacy |
-| POST | `/api/account/vk-link-confirm` | VK | Связывание Telegram- и VK-идентичностей | high | legacy |
+| POST | `/api/account/vk-link-token` | Telegram | Четырёхзначный код привязки | high | nest-ready |
+| POST | `/api/account/vk-link-confirm` | VK | Связывание Telegram- и VK-идентичностей | high | nest-ready |
 
 ## Уведомления
 

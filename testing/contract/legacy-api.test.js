@@ -5102,3 +5102,82 @@ test('legacy SEC-005: confirm/vk берёт пользователя из X-VK-U
 })
 
 test.todo('SEC-005: confirm/vk должен брать VK-пользователя только из подписанных launch params')
+
+const vkJson = async (path, body, vkUserId) => {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Client-Platform': 'vk',
+      'X-VK-User-Id': String(vkUserId),
+      'X-App-User-Id': String(10000000000 + vkUserId),
+      'X-VK-Launch-Params': buildVkLaunchParams(vkUserId),
+    },
+    body: JSON.stringify(body),
+  })
+  return { response, body: await response.json() }
+}
+const issueVkLinkCode = async (telegramId) =>
+  (await postJson('/api/account/vk-link-token', { telegram_id: telegramId }, telegramId)).body.data.token
+const confirmVkLink = async (vkUserId, token) =>
+  await vkJson('/api/account/vk-link-confirm', { telegram_id: 10000000000 + vkUserId, token }, vkUserId)
+const userVk = (telegramId) => webAuthDb((db) => db.prepare('SELECT vk_user_id FROM users WHERE telegram_id = ?').get(telegramId)?.vk_user_id ?? null)
+
+test('POST account/vk-link-token выдаёт 4-значный код из Telegram и заменяет прежний', async () => {
+  const first = await postJson('/api/account/vk-link-token', { telegram_id: 3002 }, 3002)
+  assert.equal(first.response.status, 200)
+  assert.match(first.body.data.token, /^[0-9]{4}$/)
+  assert.match(first.body.data.expires_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+  await postJson('/api/account/vk-link-token', { telegram_id: 3002 }, 3002)
+  const state = webAuthDb((db) => ({
+    tokens: db.prepare(`SELECT COUNT(*) AS count FROM vk_link_tokens t JOIN users u ON u.id = t.user_id WHERE u.telegram_id = 3002`).get().count,
+    audit: db.prepare(`SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1`).get(),
+  }))
+  assert.equal(state.tokens, 1)
+  assert.deepEqual(state.audit, { action: 'vk_link_token_created', meta: '{}' })
+  const fromVk = await vkJson('/api/account/vk-link-token', { telegram_id: 10000007001 }, 7001)
+  assert.deepEqual([fromVk.response.status, fromVk.body], [403, { ok: false, error: 'Код выдаётся только из мини-приложения Telegram.' }])
+  const unknown = await postJson('/api/account/vk-link-token', { telegram_id: 5555 }, 5555)
+  assert.deepEqual([unknown.response.status, unknown.body], [404, { ok: false, error: 'Сначала откройте приложение из Telegram-бота.' }])
+})
+
+test('POST account/vk-link-confirm привязывает VK один раз, признаёт повтор и отклоняет другой VK', async () => {
+  const token = await issueVkLinkCode(3002)
+  const linked = await confirmVkLink(7100, token)
+  assert.deepEqual([linked.response.status, linked.body], [200, { ok: true, data: { linked: true } }])
+  assert.equal(userVk(3002), 7100)
+  const audit = webAuthDb((db) => db.prepare(`SELECT action, meta FROM audit_log ORDER BY id DESC LIMIT 1`).get())
+  assert.deepEqual(audit, { action: 'vk_link_completed', meta: JSON.stringify({ vk_user_id: 7100 }) })
+  const reused = await confirmVkLink(7100, token)
+  assert.deepEqual([reused.response.status, reused.body], [400, { ok: false, error: 'Код недействителен или истёк. Создайте новый код в Telegram.' }])
+  const again = await confirmVkLink(7100, await issueVkLinkCode(3002))
+  assert.deepEqual([again.response.status, again.body], [200, { ok: true, data: { linked: true, already: true } }])
+  const other = await confirmVkLink(7101, await issueVkLinkCode(3002))
+  assert.deepEqual([other.response.status, other.body], [409, { ok: false, error: 'К этому аккаунту Telegram уже привязан другой профиль VK. Обратитесь к администратору.' }])
+})
+
+test('POST account/vk-link-confirm поглощает пустой VK-аккаунт и не трогает аккаунт с данными', async () => {
+  webAuthDb((db) => {
+    const id = Number(db.prepare(`INSERT INTO users (telegram_id, role, vk_user_id) VALUES (10000007200, 'guest', 7200)`).run().lastInsertRowid)
+    db.prepare(`INSERT INTO user_roles (user_id, role) VALUES (?, 'guest')`).run(id)
+  })
+  const merged = await confirmVkLink(7200, await issueVkLinkCode(2001))
+  assert.deepEqual([merged.response.status, merged.body], [200, { ok: true, data: { linked: true } }])
+  assert.equal(userVk(2001), 7200)
+  assert.equal(webAuthDb((db) => db.prepare('SELECT COUNT(*) AS count FROM users WHERE telegram_id = 10000007200').get().count), 0)
+  const withData = await confirmVkLink(7001, await issueVkLinkCode(1001))
+  assert.deepEqual([withData.response.status, withData.body], [409, {
+    ok: false,
+    error: 'С этим аккаунтом VK уже связаны данные (заявка, сообщения или чат). Свяжитесь с администратором для объединения.',
+  }])
+  assert.equal(userVk(1001), null)
+})
+
+test('POST account/vk-link-confirm сохраняет validation, platform и auth ошибки', async () => {
+  const badFormat = await vkJson('/api/account/vk-link-confirm', { telegram_id: 10000007300, token: '12a4' }, 7300)
+  assert.deepEqual([badFormat.response.status, badFormat.body], [400, { ok: false, error: 'Некорректные параметры запроса.' }])
+  const fromTelegram = await postJson('/api/account/vk-link-confirm', { telegram_id: 3001, token: '1234' }, 3001)
+  assert.deepEqual([fromTelegram.response.status, fromTelegram.body], [403, { ok: false, error: 'Подтверждение доступно только из VK.' }])
+  const unsigned = await postJson('/api/account/vk-link-confirm', { telegram_id: 3001, token: '1234' })
+  assert.equal(unsigned.response.status, 401)
+})

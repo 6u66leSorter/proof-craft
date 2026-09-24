@@ -41,7 +41,7 @@ client -> nginx/router -> legacy Fastify :8787
 - `telegram_id` сохраняется на HTTP-границе, но сопоставляется с подписанным credential.
 - Общая identity-логика покрыта e2e-тестами через `/api/session`.
 
-### 4. Перенос маршрутов — начат
+### 4. Перенос маршрутов — все 58 маршрутов `nest-ready`
 
 Порядок: session → публичные GET → уведомления/профили → административные GET → регистрации и модерация → назначения → чаты → домашние задания и файлы → проверки → web-auth/VK → Telegram-бот.
 
@@ -78,7 +78,14 @@ client -> nginx/router -> legacy Fastify :8787
 - Read-пакет чатов реализован в новом `ChatModule`: `GET /api/chats/students`, `GET /api/chats/messages` и `GET /api/chats/messages/:id/file` используют общий `ChatAccessPolicy`, mapper сообщений и Prisma repository. Сохранены сортировка, `limit`, роли отправителей, порядок validation/auth/domain, `CHAT_ENABLED`, local/Telegram storage и nginx-путь; `SEC-002` исправлен ограничением преподавателя назначенными учениками.
 - `POST /api/chats/messages` реализован в `ChatModule`: multipart-текст и первое вложение проходят общий auth/access boundary, изображения нормализуются в JPEG, а сообщение и app-уведомления создаются одной Prisma-транзакцией. Временные и финальные файлы очищаются при ошибках; подтверждённое исправление `SEC-002` действует и для записи. Внешних side effects у legacy-маршрута нет.
 - `POST /api/homeworks` реализован в `StudentHomeworksModule`: multipart guard принимает до пяти файлов, storage boundary нормализует изображения и очищает staged/finalized-файлы, а use case проверяет статус ученика, доступность урока, состав серии и pending-дубликат. Работа, дополнительные файлы и app-уведомления записываются одной Prisma-транзакцией; Telegram-доставка преподавателям и администраторам выполняется после коммита.
-- Следующий маршрут выбирается только после подтверждения пользователя.
+- `GET /api/admin/students` без `status` возвращает всех активных (`studying` + `completed`), как legacy: на этом построены вкладка «Ученики» и категория «Барбер» обоих клиентов; явный `status` фильтрует точно (`BUG-001`).
+- `POST /api/homeworks/:id/comments` реализован в `HomeworkCommentsModule`: владелец, назначенный преподаватель активного ученика или администратор; комментарий и уведомления (ученику от преподавателя, преподавателям от ученика) — одна транзакция.
+- `POST /api/student/homeworks/:homeworkId/revision` реализован в `StudentHomeworksModule`: первый файл запроса, изображения → JPEG, прежний файл исправления сохраняется без нового; Telegram и app-уведомления преподавателям и администраторам. Mapper карточки работы общий со списком; в ответе, как в legacy, нет `review_count`.
+- `PATCH /api/student/homeworks/:homeworkId` реализован там же: поля, удаление основного файла и вложений, новые вложения — одна транзакция с повторной проверкой `pending`; ответ — строка legacy `getHomeworkById` с флагами файлов; файлы удалённых вложений, как в legacy, остаются на диске.
+- `/api/web-auth/start`, `status`, `confirm/vk`, `logout`, `session` реализованы в `WebAuthModule`: хэши одноразовых токенов, сессии на 14 дней; подтверждение из Telegram по-прежнему выполняет бот. `confirm/vk` требует совпадения `X-VK-User-Id` с подписанными launch params (`SEC-005`).
+- `/api/account/vk-link-token` и `vk-link-confirm` реализованы в `AccountModule`: четырёхзначный код сохранён для совместимости клиентов и бота (`SEC-004` ждёт решения), пустой VK-аккаунт поглощается, аккаунт с данными блокирует привязку.
+- Проверка в сборе: визуальный стенд в режиме `VISUAL_BACKEND=split` (маршруты `nest-ready` → NestJS) — оба клиента проходят все поведенческие сценарии и снимки, кроме гостевой витрины, где отличие — намеренное исправление `SEC-001`.
+- Осталось: переключение production routing и перенос Telegram-бота на application services (этап 5).
 
 ### 5. Вывод legacy и миграция СУБД
 

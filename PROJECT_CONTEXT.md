@@ -8,7 +8,7 @@
 
 - Клиент: vanilla JavaScript, CSS, Vite 7 (`src/`); один билд выбирает Telegram/VK по launch-параметрам.
 - Сервер: Node.js (ES modules), Fastify 5, Zod, `@fastify/cors`, `@fastify/multipart`.
-- Новый backend в процессе миграции: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`); `/health`, `/api/session`, публичное портфолио, авторизованная витрина, уведомления, чтение работ ученика и чатов, чтение/загрузка аватаров, описания и отправка/административное чтение заявок профилей, а также авторизованные файлы работы и чата готовы к точечному переключению, production продолжает обслуживать legacy API.
+- Новый backend: NestJS 12 с Fastify adapter, TypeScript и Prisma 7.10 (`backend/`). Все 58 маршрутов legacy API реализованы и имеют статус `nest-ready`; production продолжает обслуживать legacy API до переключения routing. Telegram-бот пока работает на legacy `bot/`.
 - Бот: `node-telegram-bot-api`.
 - Данные: SQLite через `better-sqlite3`; изображения обрабатывает `sharp`.
 - Прод: PM2 и nginx (маршрутизация `/api` поддерживает сценарий, где nginx срезает префикс).
@@ -125,6 +125,7 @@ npm run build
 - `npm test` запускает characterization-тесты legacy API и e2e-тесты NestJS. Legacy-тесты создают временную копию проекта и отдельную SQLite-БД, поэтому не меняют локальный `data/barber.db`.
 - Проверка NestJS отдельно: `npm run test:backend`, `npm --prefix backend run typecheck`, `npm run backend:build`.
 - Prisma baseline проверяется в `backend/test/prisma-baseline.e2e.test.ts`: тест создаёт БД legacy-миграциями, сверяет 19 таблиц и выполняет чтение через repository. Отдельные e2e-тесты проверяют session/auth, публичное портфолио, showcase, уведомления, работы, read-маршруты чата, профили student/teacher и аватары ученика, включая profile-edit транзакцию и уведомления, multipart-загрузку, cleanup, approved-only доступ, ролевую матрицу файлов, preview, credential-проверку, retention и изоляцию по user ID.
+- `VISUAL_BACKEND=split npm --prefix frontend run visual:test` прогоняет тот же набор через split-routing: маршруты `nest-ready` обслуживает NestJS, остальные — legacy; `VISUAL_BACKEND=split npm --prefix frontend run compare -- <роль>` открывает клиенты на этой связке.
 - `npm --prefix frontend run visual:test` сравнивает legacy-клиент с 266 эталонными скриншотами на изолированном legacy API и отдельной SQLite (`frontend/README.md`). Эталоны — критерий «1 в 1» для нового клиента.
 - `testing/atac/README.md` описывает ручные API smoke-сценарии: health/session, модерация, назначение преподавателя, сдача и проверка ДЗ, уведомления и аудит.
 - `docs/migration/API_INVENTORY.md` содержит реестр 58 маршрутов, а `docs/migration/BEHAVIOR_DECISIONS.md` отделяет совместимость от дефектов, которые нельзя переносить в NestJS.
